@@ -17,22 +17,10 @@ package client
 
 import (
 	"encoding/json"
-	"strconv"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/lib/go-util"
 )
-
-func (to *Session) GetDeliveryServiceServers() ([]tc.DeliveryServiceServer, ReqInf, error) {
-	path := apiBase + `/deliveryserviceserver`
-	// deliveryService
-	resp := tc.DeliveryServiceServerResponse{}
-	reqInf, err := get(to, path, &resp)
-	if err != nil {
-		return nil, reqInf, err
-	}
-	return resp.Response, reqInf, nil
-}
 
 // CreateDeliveryServiceServers associates the given servers with the given delivery services. If replace is true, it deletes any existing associations for the given delivery service.
 func (to *Session) CreateDeliveryServiceServers(dsID int, serverIDs []int, replace bool) (*tc.DSServerIDs, error) {
@@ -49,19 +37,8 @@ func (to *Session) CreateDeliveryServiceServers(dsID int, serverIDs []int, repla
 	resp := struct {
 		Response tc.DSServerIDs `json:"response"`
 	}{}
-	if err := post(to, path, jsonReq, &resp); err != nil {
+	if _, err := post(to, path, jsonReq, &resp); err != nil {
 		return nil, err
 	}
 	return &resp.Response, nil
-}
-
-// DeleteDeliveryService deletes the given delivery service server association.
-func (to *Session) DeleteDeliveryServiceServer(dsID int, serverID int) error {
-	path := apiBase + `/deliveryservice_server/` + strconv.Itoa(dsID) + `/` + strconv.Itoa(serverID)
-	resp := struct{ tc.Alerts }{}
-	err := del(to, path, &resp)
-	if err != nil {
-		return err
-	}
-	return nil
 }

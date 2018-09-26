@@ -143,16 +143,6 @@ var TableDeliveryServicesRequestsController = function (request, $scope, $state,
 
 	$scope.navigateToPath = locationUtils.navigateToPath;
 
-	angular.element(document).ready(function () {
-		var table = $('#dsRequestCommentsTable').dataTable({
-			"searching": false,
-			"paging": false,
-			"info": false,
-			"ordering": false,
-
-		});
-	});
-
 	$scope.getComments();
 };
 

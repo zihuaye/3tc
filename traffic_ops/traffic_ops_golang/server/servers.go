@@ -91,8 +91,14 @@ func (server *TOServer) GetType() string {
 	return "server"
 }
 
-func (server *TOServer) Validate() error {
+func (server *TOServer) Sanitize() {
+	if server.IP6Address != nil && *server.IP6Address == "" {
+		server.IP6Address = nil
+	}
+}
 
+func (server *TOServer) Validate() error {
+	server.Sanitize()
 	noSpaces := validation.NewStringRule(tovalidate.NoSpaces, "cannot contain spaces")
 
 	validateErrs := validation.Errors{
@@ -270,7 +276,7 @@ FULL OUTER JOIN deliveryservice_server dss ON dss.server = s.id
 		if err = rows.StructScan(&s); err != nil {
 			return nil, []error{fmt.Errorf("getting servers: %v", err)}, tc.SystemError
 		}
-		if user.PrivLevel < auth.PrivLevelAdmin {
+		if user.PrivLevel < auth.PrivLevelOperations {
 			s.ILOPassword = &HiddenField
 			s.XMPPPasswd = &HiddenField
 		}

@@ -71,7 +71,7 @@ type DeliveryService struct {
 	DeepCachingType   DeepCachingType `json:"deepCachingType"`
 	FQPacingRate      int             `json:"fqPacingRate,omitempty"`
 	SigningAlgorithm  string          `json:"signingAlgorithm" db:"signing_algorithm"`
-	TenantName        string          `json:"tenantName,omitempty"`
+	Tenant            string          `json:"tenant,omitempty"`
 	TRRequestHeaders  string          `json:"trRequestHeaders,omitempty"`
 	TRResponseHeaders string          `json:"trResponseHeaders,omitempty"`
 }
@@ -557,6 +557,21 @@ type DSServerIDs struct {
 	DeliveryServiceID *int  `json:"dsId" db:"deliveryservice"`
 	ServerIDs         []int `json:"servers"`
 	Replace           *bool `json:"replace"`
+}
+
+type CachegroupPostDSReq struct {
+	DeliveryServices []int64 `json:"deliveryServices"`
+}
+
+type CacheGroupPostDSResp struct {
+	ID               util.JSONIntStr `json:"id"`
+	ServerNames      []CacheName     `json:"serverNames"`
+	DeliveryServices []int64         `json:"deliveryServices"`
+}
+
+type CacheGroupPostDSRespResponse struct {
+	Alerts
+	Response CacheGroupPostDSResp `json:"response"`
 }
 
 type AssignedDsResponse struct {

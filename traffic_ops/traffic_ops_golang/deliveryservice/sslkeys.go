@@ -78,5 +78,10 @@ func generatePutRiakKeys(req tc.DeliveryServiceSSLKeysReq, tx *sql.Tx, cfg *conf
 	if err := riaksvc.PutDeliveryServiceSSLKeysObjTx(dsSSLKeys, tx, cfg.RiakAuthOptions); err != nil {
 		return errors.New("putting riak keys: " + err.Error())
 	}
+
+	dsSSLKeys.Version = riaksvc.DSSSLKeyVersionLatest
+	if err := riaksvc.PutDeliveryServiceSSLKeysObjTx(dsSSLKeys, tx, cfg.RiakAuthOptions); err != nil {
+		return errors.New("putting latest riak keys: " + err.Error())
+	}
 	return nil
 }
