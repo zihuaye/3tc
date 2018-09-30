@@ -13,7 +13,7 @@
 .. limitations under the License.
 ..
 
-.. _rl-anonymous_blocking-qht:
+.. _anonymous_blocking-qht:
 
 **************************************
 Configure Anonymous Blocking
@@ -33,14 +33,14 @@ Anonymous Blocking uses a configuration file in JSON format to define blocking r
        "name": "Anonymous IP Blocking Policy",
 
        "anonymousIp": { "blockAnonymousVPN": true,
-                        "blockHostingProvider": true, 
+                        "blockHostingProvider": true,
                         "blockPublicProxy": true,
                         "blockTorExitNode": true},
-                        
+
        "ip4Whitelist": ["192.168.30.0/24", "10.0.2.0/24", "10.1.1.1/32"],
-       
+
        "ip6Whitelist": ["2001:550:90a::/48", "::1/128"],
-       
+
        "redirectUrl": "http://youvebeenblocked.com"
     }
 
@@ -59,13 +59,13 @@ The following three new parameters are required to be added into CRConfig.json:
 * "anonymousip.polling.url": the HTTP URL of the Anonymous IP Database. Traffic Router will fetch the file from this URL.
 * "anonymousip.polling.interval": the interval that Traffic Router polls the Anonymous Blocking configuration file and Anonymous IP Database.
 
-.. image:: anonymous_blocking01.png
+.. image:: anonymous_blocking/01.png
   :scale: 100%
   :align: center
 
 3)  Enable Anonmyous Blocking for a delivery service
 
-.. image:: anonymous_blocking02.png
+.. image:: anonymous_blocking/02.png
   :scale: 100%
   :align: center
 
@@ -73,7 +73,7 @@ The following three new parameters are required to be added into CRConfig.json:
 
 Go to Tools->Snapshot CRConfig, perform “Diff CRConfig” and click "Write CRConfig".
 
-.. image:: regionalgeo03.png
+.. image:: regionalgeo/03.png
   :scale: 70%
   :align: center
 
@@ -83,5 +83,5 @@ Anonymous Blocking extends the field of "rtype" and adds a new field "ANON_BLOCK
 
 If rtype=ANON_BLOCK then the client's IP was found in the Anonymous IP Database and was blocked.
 
-   
+
 

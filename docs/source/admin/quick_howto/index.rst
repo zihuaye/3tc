@@ -23,21 +23,16 @@ Traffic Ops
 
 .. toctree::
 
-  multi_site.rst
-  dnssec.rst
-  federations.rst
-  regionalgeo.rst
-  anonymous_blocking.rst
-  steering.rst
+	multi_site.rst
+	federations.rst
+	regionalgeo.rst
+	anonymous_blocking.rst
 
 Traffic Portal
 ==============
 
 .. toctree::
 
-  ds_requests.rst
-
-
-
-
-
+	dnssec.rst
+	ds_requests.rst
+	steering.rst
