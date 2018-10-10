@@ -19,6 +19,10 @@ package tc
  * under the License.
  */
 
+import (
+	"database/sql"
+)
+
 type CDNFederationResponse struct {
 	Response []CDNFederation `json:"response"`
 }
@@ -61,4 +65,41 @@ type FederationNullable struct {
 type FederationMapping struct {
 	CName string `json:"cname"`
 	TTL   int    `json:"ttl"`
+}
+
+// AllFederation is the JSON object returned by /api/1.x/federations?all
+type AllFederation struct {
+	Mappings        []AllFederationMapping `json:"mappings"`
+	DeliveryService DeliveryServiceName    `json:"deliveryService"`
+}
+
+func (a AllFederation) IsAllFederations() bool { return true }
+
+// AllFederation is the JSON object returned by /api/1.x/federations?all&cdnName=my-cdn-name
+type AllFederationCDN struct {
+	CDNName *CDNName `json:"cdnName"`
+}
+
+func (a AllFederationCDN) IsAllFederations() bool { return true }
+
+type AllFederationMapping struct {
+	TTL      *int     `json:"ttl"`
+	CName    *string  `json:"cname"`
+	Resolve4 []string `json:"resolve4,omitempty"`
+	Resolve6 []string `json:"resolve6,omitempty"`
+}
+
+// IAllFederation is an interface for the disparate objects returned by /api/1.x/federations?all.
+// Adds additional safety, allowing functions to only return one of the valid object types for the endpoint.
+type IAllFederation interface {
+	IsAllFederations() bool
+}
+
+type FederationDSPost struct {
+	DSIDs   []int `json:"dsIds"`
+	Replace *bool `json:"replace"`
+}
+
+func (f *FederationDSPost) Validate(tx *sql.Tx) error {
+	return nil
 }

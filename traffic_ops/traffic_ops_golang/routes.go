@@ -50,6 +50,7 @@ import (
 	dsserver "github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/deliveryservice/servers"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/deliveryservicesregexes"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/division"
+	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/federations"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/hwinfo"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/login"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/monitoring"
@@ -63,6 +64,7 @@ import (
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/server"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/staticdnsentry"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/status"
+	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/steering"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/steeringtargets"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/systeminfo"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/types"
@@ -361,6 +363,11 @@ func Routes(d ServerData) ([]Route, []RawRoute, http.Handler, error) {
 		{1.1, http.MethodPut, `cdns/{id}/snapshot/?$`, crconfig.SnapshotHandler, auth.PrivLevelOperations, Authenticated, nil},
 		{1.1, http.MethodPut, `snapshot/{cdn}/?$`, crconfig.SnapshotHandler, auth.PrivLevelOperations, Authenticated, nil},
 
+		// Federations
+		{1.4, http.MethodGet, `federations/all/?(\.json)?$`, federations.GetAll, auth.PrivLevelAdmin, Authenticated, nil},
+		{1.1, http.MethodGet, `federations/?(\.json)?$`, federations.Get, auth.PrivLevelFederation, Authenticated, nil},
+		{1.1, http.MethodPost, `federations/{id}/deliveryservices?(\.json)?$`, federations.PostDSes, auth.PrivLevelAdmin, Authenticated, nil},
+
 		////DeliveryServices
 		{1.3, http.MethodGet, `deliveryservices/?(\.json)?$`, api.ReadHandler(deliveryservice.GetTypeV13Factory()), auth.PrivLevelReadOnly, Authenticated, nil},
 		{1.1, http.MethodGet, `deliveryservices/?(\.json)?$`, api.ReadHandler(deliveryservice.GetTypeV12Factory()), auth.PrivLevelReadOnly, Authenticated, nil},
@@ -390,6 +397,8 @@ func Routes(d ServerData) ([]Route, []RawRoute, http.Handler, error) {
 		{1.1, http.MethodPost, `steering/{deliveryservice}/targets/?(\.json)?$`, api.CreateHandler(steeringtargets.TypeFactory), auth.PrivLevelOperations, Authenticated, nil},
 		{1.1, http.MethodPut, `steering/{deliveryservice}/targets/{target}/?(\.json)?$`, api.UpdateHandler(steeringtargets.TypeFactory), auth.PrivLevelOperations, Authenticated, nil},
 		{1.1, http.MethodDelete, `steering/{deliveryservice}/targets/{target}/?(\.json)?$`, api.DeleteHandler(steeringtargets.TypeFactory), auth.PrivLevelOperations, Authenticated, nil},
+
+		{1.4, http.MethodGet, `steering/?(\.json)?$`, steering.Get, auth.PrivLevelSteering, Authenticated, nil},
 	}
 
 	// rawRoutes are served at the root path. These should be almost exclusively old Perl pre-API routes, which have yet to be converted in all clients. New routes should be in the versioned API path.

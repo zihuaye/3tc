@@ -323,6 +323,78 @@ func (t DeepCachingType) MarshalJSON() ([]byte, error) {
 	return json.Marshal(t.String())
 }
 
+type SteeringType string
+
+const (
+	SteeringTypeOrder     SteeringType = "STEERING_ORDER"
+	SteeringTypeWeight    SteeringType = "STEERING_WEIGHT"
+	SteeringTypeGeoOrder  SteeringType = "STEERING_GEO_ORDER"
+	SteeringTypeGeoWeight SteeringType = "STEERING_GEO_WEIGHT"
+	SteeringTypeInvalid   SteeringType = ""
+)
+
+func SteeringTypeFromString(s string) SteeringType {
+	s = strings.ToLower(strings.Replace(s, "_", "", -1))
+	switch s {
+	case "steeringorder":
+		return SteeringTypeOrder
+	case "steeringweight":
+		return SteeringTypeWeight
+	case "steeringgeoorder":
+		return SteeringTypeGeoOrder
+	case "steeringgeoweight":
+		return SteeringTypeGeoWeight
+	default:
+		return SteeringTypeInvalid
+	}
+}
+
+// String returns a string representation of this steering type.
+func (t SteeringType) String() string {
+	switch t {
+	case SteeringTypeOrder:
+		fallthrough
+	case SteeringTypeWeight:
+		fallthrough
+	case SteeringTypeGeoOrder:
+		fallthrough
+	case SteeringTypeGeoWeight:
+		return string(t)
+	default:
+		return "INVALID"
+	}
+}
+
+type FederationResolverType string
+
+const (
+	FederationResolverType4       = FederationResolverType("RESOLVE4")
+	FederationResolverType6       = FederationResolverType("RESOLVE6")
+	FederationResolverTypeInvalid = FederationResolverType("")
+)
+
+func (t FederationResolverType) String() string {
+	switch t {
+	case FederationResolverType4:
+		fallthrough
+	case FederationResolverType6:
+		return string(t)
+	default:
+		return "INVALID"
+	}
+}
+
+func FederationResolverTypeFromString(s string) FederationResolverType {
+	switch strings.ToLower(s) {
+	case "resolve4":
+		return FederationResolverType4
+	case "resolve6":
+		return FederationResolverType6
+	default:
+		return FederationResolverTypeInvalid
+	}
+}
+
 // DSType is the Delivery Service type.
 type DSType string
 

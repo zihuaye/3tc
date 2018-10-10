@@ -28,6 +28,11 @@ under the License.
         <br>
     </div>
     <div class="row">
+        <div class="col-md-12 col-sm-12 col-xs-12">
+            <div ng-if="hasCapability('delivery-services-read')" class="x_panel" ui-view="deliveryServicesContent"></div>
+        </div>
+    </div>
+    <div class="row">
         <div class="col-md-4 col-sm-4 col-xs-12">
             <div ng-if="hasCapability('cdns-read')" class="x_panel tile fixed_height_320" ui-view="capacityContent"></div>
             <div ng-if="hasCapability('cdns-read')" class="x_panel tile" ui-view="routingContent"></div>
