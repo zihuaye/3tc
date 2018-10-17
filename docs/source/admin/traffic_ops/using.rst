@@ -13,11 +13,13 @@
 .. limitations under the License.
 ..
 
-.. |graph| image:: ../../_static/graph.png
-.. |info| image:: ../../_static//info.png
-.. |checkmark| image:: ../../_static/good.png
-.. |X| image:: ../../_static/bad.png
-.. |clock| image:: ../../_static/clock-black.png
+.. |graph| image:: images/graph.png
+.. |info| image:: images/info.png
+.. |checkmark| image:: images/good.png
+.. |X| image:: images/bad.png
+.. |clock| image:: images/clock-black.png
+
+.. _to-using:
 
 *******************
 Traffic Ops - Using
@@ -1116,8 +1118,8 @@ Every 15 minutes the caches should run a *syncds* to get all changes needed from
 A cache will only get updated when the update flag is set for it. To set the update flag, use the *Queue Updates* menu - here you can schedule updates for a whole CDN or a cache group:
 
 #. Click **Tools > Queue Updates**.
-#. Select the CDN to queueu uodates for, or All.
-#. Select the cache group to queue updates for, or All
+#. Select the CDN to queue updates for or select All.
+#. Select the cache group to queue updates for or select All.
 #. Click the **Queue Updates** button.
 #. When the Queue Updates for this Server? (all) window opens, click **OK**.
 
@@ -1147,7 +1149,7 @@ To create a new snapshot, use the *Tools > Snapshot CRConfig* menu:
 
 	#. Click **Write CRConfig**.
 	#. When the This will push out a new CRConfig.json. Are you sure? window opens, click **OK**.
-	#. The Successfully wrote CRConfig.json! window opens, click **OK**.
+	#. The "Successfully wrote CRConfig.json!" window opens, click **OK**.
 
 
 .. index::

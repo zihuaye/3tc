@@ -13,10 +13,10 @@
 .. limitations under the License.
 ..
 
-edge
-====
+traffic\_ops\_ort.packaging module
+==================================
 
-.. toctree::
-   :maxdepth: 4
-
-   traffic_ops_ort
+.. automodule:: traffic_ops_ort.packaging
+    :members:
+    :undoc-members:
+    :show-inheritance:
