@@ -39,6 +39,38 @@ done
 endpoints="cdns types divisions regions phys_locations tenants users cachegroups deliveryservices profiles parameters servers deliveryservice_servers"
 vars=$(awk -F = '/^\w/ {printf "$%s ",$1}' /variables.env)
 
+waitfor() {
+    local endpoint="$1"
+    local field="$2"
+    local value="$3"
+
+    while true; do
+        v=$(to-get "api/1.4/$endpoint?$field=$value" | jq -r --arg field "$field" '.response[][$field]')
+        if [[ $v == $value ]]; then
+            break
+        fi
+        echo "waiting for $endpoint $field=$value"
+        sleep 3
+    done
+}
+
+# special cases -- any data type requiring specific data to already be available in TO should have an entry here.
+# e,g. deliveryservice_servers requires both deliveryservice and all servers to be available
+delayfor() {
+    local f="$1"
+    local d="${f%/*}"
+
+    case $d in
+        deliveryservice_servers)
+            ds=$( jq -r .xmlId <"$f" )
+            waitfor deliveryservices xmlId "$ds"
+            for s in $( jq -r .serverNames[] <"$f" ); do
+                waitfor servers hostName "$s"
+            done
+            ;;
+    esac
+}
+
 load_data_from() {
     local dir="$1"
     if [[ ! -d $dir ]] ; then
@@ -48,16 +80,21 @@ load_data_from() {
     local status=0
     for d in $endpoints; do
         [[ -d $d ]] || continue
+        # Let containers know to write out server.json
+        if [[ "$d" = "deliveryservice_servers" ]] ; then 
+           touch "$ENROLLER_DIR/initial-load-done"
+           sync
+        fi 
         for f in "$d"/*.json; do 
             echo "Loading $f"
+            delayfor "$f"
             envsubst "$vars" <$f  > "$ENROLLER_DIR"/$f
+            sync
         done
     done
     if [[ $status -ne 0 ]]; then
         exit $status
     fi
-    # After done loading all data
-    touch "$ENROLLER_DIR/initial-load-done"
     cd -
 }
 

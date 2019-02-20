@@ -26,12 +26,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/api"
 
 	"github.com/lib/pq"
 )
 
 const CacheMonitorConfigFile = "rascal.properties"
+
 const MonitorType = "RASCAL"
 const RouterType = "CCR"
 const MonitorProfilePrefix = "RASCAL"
@@ -109,10 +111,10 @@ func Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer inf.Close()
-	api.RespWriter(w, r, inf.Tx.Tx)(getMonitoringJSON(inf.Tx.Tx, inf.Params["cdn"]))
+	api.RespWriter(w, r, inf.Tx.Tx)(GetMonitoringJSON(inf.Tx.Tx, inf.Params["cdn"]))
 }
 
-func getMonitoringJSON(tx *sql.Tx, cdnName string) (*Monitoring, error) {
+func GetMonitoringJSON(tx *sql.Tx, cdnName string) (*Monitoring, error) {
 	monitors, caches, routers, err := getMonitoringServers(tx, cdnName)
 	if err != nil {
 		return nil, fmt.Errorf("error getting servers: %v", err)
@@ -196,7 +198,7 @@ WHERE cdn.name = $1`
 			return nil, nil, nil, err
 		}
 
-		if ttype.String == MonitorType {
+		if ttype.String == tc.MonitorTypeName {
 			monitors = append(monitors, Monitor{
 				BasicServer: BasicServer{
 					Profile:    profile.String,
@@ -225,7 +227,7 @@ WHERE cdn.name = $1`
 				Type:          ttype.String,
 				HashID:        hashID.String,
 			})
-		} else if ttype.String == RouterType {
+		} else if ttype.String == tc.RouterTypeName {
 			routers = append(routers, Router{
 				Type:    ttype.String,
 				Profile: profile.String,
@@ -381,7 +383,7 @@ FROM parameter pr
 JOIN profile p ON p.name LIKE '%s%%'
 JOIN profile_parameter pp ON pp.profile = p.id and pp.parameter = pr.id
 WHERE pr.config_file = '%s'
-`, MonitorProfilePrefix, MonitorConfigFile)
+`, tc.MonitorProfilePrefix, MonitorConfigFile)
 
 	rows, err := tx.Query(query)
 	if err != nil {

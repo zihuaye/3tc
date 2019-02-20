@@ -39,7 +39,7 @@ func getConnStateCallback(connMap *ConnMap) func(net.Conn, http.ConnState) {
 			fallthrough
 		case http.StateIdle:
 			if iconn, ok := conn.(*InterceptConn); !ok {
-				log.Errorf("ConnState callback: idle conn is not a InterceptConn: '%T'\n", conn)
+				log.Infof("ConnState callback: idle conn is not a InterceptConn: '%T'\n", conn)
 			} else {
 				// MUST be zeroed when the conn moves to Idle, because the Active callback happens _after_ some/all bytes have been read
 				iconn.bytesRead = 0
@@ -48,7 +48,7 @@ func getConnStateCallback(connMap *ConnMap) func(net.Conn, http.ConnState) {
 			connMap.Remove(conn.RemoteAddr().String())
 		case http.StateActive:
 			if iconn, ok := conn.(*InterceptConn); !ok {
-				log.Errorf("ConnState callback: active conn is not a InterceptConn: '%T'\n", conn)
+				log.Infof("ConnState callback: active conn is not a InterceptConn: '%T'\n", conn)
 			} else {
 				connMap.Add(iconn)
 			}
@@ -67,9 +67,12 @@ func InterceptListen(network, laddr string) (net.Listener, *ConnMap, func(net.Co
 }
 
 // InterceptListenTLS is like InterceptListen but for serving HTTPS. It returns the tls.Config, which must be set on the http.Server using this listener for HTTP/2 to be set up.
-func InterceptListenTLS(network string, laddr string, certs []tls.Certificate) (net.Listener, *ConnMap, func(net.Conn, http.ConnState), *tls.Config, error) {
+func InterceptListenTLS(network string, laddr string, certs []tls.Certificate, h2Disabled bool) (net.Listener, *ConnMap, func(net.Conn, http.ConnState), *tls.Config, error) {
 	config := &tls.Config{}
-	config.NextProtos = []string{"h2"}
+	// HTTP2 is enabled if config.DisableHTTP2 is false
+	if !h2Disabled {
+		config.NextProtos = []string{"h2"}
+	}
 	config.Certificates = certs
 	config.BuildNameToCertificate()
 	l, err := net.Listen(network, laddr)

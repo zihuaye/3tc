@@ -79,6 +79,18 @@ func SetupTestData(*sql.DB) error {
 		os.Exit(1)
 	}
 
+	err = SetupJobAgents(db)
+	if err != nil {
+		fmt.Printf("\nError setting up job agents %s - %s, %v\n", Config.TrafficOps.URL, Config.TrafficOps.Users.Admin, err)
+		os.Exit(1)
+	}
+
+	err = SetupJobStatuses(db)
+	if err != nil {
+		fmt.Printf("\nError setting up job agents %s - %s, %v\n", Config.TrafficOps.URL, Config.TrafficOps.Users.Admin, err)
+		os.Exit(1)
+	}
+
 	return err
 }
 
@@ -136,12 +148,12 @@ func SetupTmusers(db *sql.DB) error {
 
 	// Creates users in different tenants
 	sqlStmt := `
-INSERT INTO tm_user (username, local_passwd, confirm_local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.Disallowed + `','` + encryptedPassword + `','` + encryptedPassword + `', 1, 1);
-INSERT INTO tm_user (username, local_passwd, confirm_local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.ReadOnly + `','` + encryptedPassword + `','` + encryptedPassword + `', 2, 1);
-INSERT INTO tm_user (username, local_passwd, confirm_local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.Operations + `','` + encryptedPassword + `','` + encryptedPassword + `', 3, 1);
-INSERT INTO tm_user (username, local_passwd, confirm_local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.Admin + `','` + encryptedPassword + `','` + encryptedPassword + `', 4, 1);
-INSERT INTO tm_user (username, local_passwd, confirm_local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.Portal + `','` + encryptedPassword + `','` + encryptedPassword + `', 5, 1);
-INSERT INTO tm_user (username, local_passwd, confirm_local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.Federation + `','` + encryptedPassword + `','` + encryptedPassword + `', 6, 1);
+INSERT INTO tm_user (username, local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.Disallowed + `','` + encryptedPassword + `', 1, 1);
+INSERT INTO tm_user (username, local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.ReadOnly + `','` + encryptedPassword + `', 2, 1);
+INSERT INTO tm_user (username, local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.Operations + `','` + encryptedPassword + `', 3, 1);
+INSERT INTO tm_user (username, local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.Admin + `','` + encryptedPassword + `', 4, 1);
+INSERT INTO tm_user (username, local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.Portal + `','` + encryptedPassword + `', 5, 1);
+INSERT INTO tm_user (username, local_passwd, role, tenant_id) VALUES ('` + Config.TrafficOps.Users.Federation + `','` + encryptedPassword + `', 6, 1);
 `
 	err = execSQL(db, sqlStmt, "tm_user")
 	if err != nil {

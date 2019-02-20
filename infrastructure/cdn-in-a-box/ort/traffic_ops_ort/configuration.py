@@ -22,7 +22,7 @@ hold and set up the log level, run modes, Traffic Ops login
 credentials etc.
 """
 
-import datetime
+import argparse
 import enum
 import logging
 import os
@@ -32,63 +32,13 @@ import typing
 import distro
 import requests
 
-#: Contains the host's hostname as a tuple of ``(short_hostname, full_hostname)``
-HOSTNAME = (platform.node().split('.')[0], platform.node())
+
+#: A format specifier for logging output. Propagates to all imported modules.
+LOG_FORMAT = "%(levelname)s: %(asctime)s line %(lineno)d in %(module)s.%(funcName)s: %(message)s"
+
 
 #: contains identifying information about the host system's Linux distribution
 DISTRO = distro.LinuxDistribution().id()
-
-#: Holds information about the host system, required for processing configuration files,
-#: and also possibly useful in other situations
-SERVER_INFO = None
-
-#: This sets whether or not to verify SSL certificates when communicated with Traffic Ops.
-#: Does not affect non-Traffic Ops servers
-VERIFY = True
-
-#: If set to :const:`True`, this script will not apply updates until all of its parents have
-#: finished applying their updates
-WAIT_FOR_PARENTS = False
-
-
-class Modes(enum.IntEnum):
-	"""
-	Enumerated run modes
-	"""
-	REPORT = 0      #: Do nothing, only report what would be done
-	INTERACTIVE = 1 #: Ask for user confirmation before modifying the system
-	REVALIDATE = 2  #: Only check for configuration file changes and content revalidations
-	SYNCDS = 3      #: Check for and apply Delivery Service changes
-	BADASS = 4      #: Apply all settings specified in Traffic Ops, and attempt to solve all problems
-
-	def __str__(self) -> str:
-		"""
-		Implements ``str(self)`` by returning enum member's name
-		"""
-		return self.name
-
-#: Holds the current run mode
-MODE = None
-
-def setMode(mode:str) -> bool:
-	"""
-	Sets the script's run mode in the global variable :data:`MODE`
-
-	:param mode: Expected to be the name of a :class:`Modes` constant.
-	:returns: whether or not the run mode could be set successfully
-	:raises ValueError: when ``mode`` is not a :const:`str`
-	"""
-	try:
-		mode = Modes[mode.upper()]
-	except KeyError:
-		return False
-	except (AttributeError, ValueError) as e:
-		raise ValueError from e
-
-	global MODE
-	MODE = mode
-
-	return True
 
 
 class LogLevels(enum.IntEnum):
@@ -112,162 +62,183 @@ class LogLevels(enum.IntEnum):
 		"""
 		return self.name if self != logging.CRITICAL else "FATAL"
 
-#: A format specifier for logging output. Propagates to all imported modules.
-LOG_FORMAT = "%(levelname)s: %(asctime)s line %(lineno)d in %(module)s.%(funcName)s: %(message)s"
 
-def setLogLevel(level:str) -> bool:
+class Configuration():
 	"""
-	Sets the global logger's log level to the desired name.
+	Represents a configured state for :program:`traffic_ops_ort`.
+	"""
 
-	:param level: Expected to be the name of a :class:`LogLevels` constant.
-	:returns: whether or not the log level could be set successfully
-	:raises ValueError: when the type of ``level`` is not :const:`str`
+	class Modes(enum.IntEnum):
+		"""
+		Enumerated representations for run modes for valid configurations.
+		"""
+		REPORT = 0      #: Do nothing, only report what would be done
+		INTERACTIVE = 1 #: Ask for user confirmation before modifying the system
+		REVALIDATE = 2  #: Only check for configuration file changes and content revalidations
+		SYNCDS = 3      #: Check for and apply Delivery Service changes
+		BADASS = 4      #: Apply all settings specified in Traffic Ops, with no restrictions
+
+		def __str__(self) -> str:
+			"""
+			Implements ``str(self)``
+
+			:returns: the enum member's name
+			"""
+			return self.name
+
+
+	#: Holds a reference to a :class:`to_api.API` object used by this configuration - must be set
+	#: manually.
+	api = None
+
+
+	#: Holds a reference to a :class:`to_api.ServerInfo` object used by this configuration - must be
+	#: set manually.
+	ServerInfo = None
+
+
+	def __init__(self, args:argparse.Namespace):
+		"""
+		Constructs the configuration object.
+
+		:param args: Should be the result of parsing command-line arguments to :program:`traffic_ops_ort`
+		:raises ValueError: if an error occurred setting up the configuration
+		"""
+		global DISTRO
+
+		self.dispersion = args.dispersion if args.dispersion > 0 else 0
+		self.login_dispersion = args.login_dispersion if args.login_dispersion > 0 else 0
+		self.wait_for_parents = bool(args.wait_for_parents)
+		self.retries = args.retries if args.retries > 0 else 0
+		self.rev_proxy_disable = args.rev_proxy_disable
+		self.verify = not args.insecure
+
+		setLogLevel(args.log_level)
+
+		logging.info("Distribution detected as: '%s'", DISTRO)
+
+		self.hostname = (platform.node().split('.')[0], platform.node())
+		logging.info("Hostname detected as: '%s'", self.fullHostname)
+
+		try:
+			self.mode = Configuration.Modes[args.Mode.upper()]
+		except KeyError as e:
+			raise ValueError("Unrecognized Mode: '%s'" % args.Mode)
+
+		self.tsroot = parseTSRoot(args.ts_root)
+		logging.info("ATS root installation directory set to '%s'", self.tsroot)
+
+		self.useSSL, self.toHost, self.toPort = parseTOURL(args.to_url, self.verify)
+		self.username, self.password = args.to_user, args.to_password
+
+
+	@property
+	def shortHostname(self) -> str:
+		"""
+		Convenience accessor for the short hostname of this server
+
+		:returns: The (short) hostname of this server as detected by :func:`platform.node`
+		"""
+		return self.hostname[0]
+
+	@property
+	def fullHostname(self) -> str:
+		"""
+		Convenience accessor for the full hostname of this server
+
+		:returns: The hostname of this server as detected by :func:`platform.node`
+		"""
+		return self.hostname[1]
+
+	@property
+	def TOURL(self) -> str:
+		"""
+		Convenience function to construct a full URL out of whatever information was given at runtime
+
+		:returns: The configuration's URL which points to its Traffic Ops server instance
+
+		.. note:: This is totally constructed from information given on the command line; the
+			resulting URL may actually point to a reverse proxy for the Traffic Ops server and not
+			the server itself.
+		"""
+		return "%s://%s:%d/" % ("https" if self.useSSL else "https", self.toHost, self.toPort)
+
+
+def setLogLevel(level:str):
 	"""
+	Parses a string to return the requested :class:`LogLevels` member, to which it will then set
+	the global logging level.
+
+	:param level: the name of a LogLevels enum constant
+	:raises ValueError: if ``level`` cannot be parsed to an actual LogLevel
+	"""
+	global LOG_FORMAT
+
 	try:
 		level = LogLevels[level.upper()]
-	except KeyError:
-		return False
-	except (AttributeError, ValueError) as e:
-		raise ValueError from e
+	except KeyError as e:
+		raise ValueError("Unrecognized log level: '%s'" % level) from e
 
 	logging.basicConfig(level=level, format=LOG_FORMAT)
 	logging.getLogger().setLevel(level)
 
-	return True
 
-
-#: An absolute path to the root installation directory of the Apache Trafficserver installation
-TS_ROOT = None
-
-def setTSRoot(tsroot:str) -> bool:
+def parseTSRoot(tsroot:str) -> str:
 	"""
-	Sets the global variable :data:`TS_ROOT`.
+	Parses and validates a given path as a path to the root of an Apache Traffic Server installation
 
-	:param tsroot: Should be an absolute path to the directory containing the system's Apache
-		Trafficserver installation.
-	:returns: whether or not the installation path could be set successfully
-	:raises ValueError: if ``tsroot`` is not a :const:`str`
-
+	:param tsroot: The relative or absolute path to the root of this server's ATS installation
+	:raises ValueError: if ``tsroot`` is not an existing path, or does not contain the ATS binary
 	"""
+	tsroot = tsroot.strip()
+	if tsroot != '/' and tsroot.endswith('/'):
+		tsroot = tsroot.rstrip('/')
+
 	try:
-		tsroot = tsroot.strip()
+		if not os.path.isdir(tsroot):
+			raise ValueError("'%s' is not a directory!" % tsroot)
 
-		if tsroot != '/' and tsroot.endswith('/'):
-			tsroot = tsroot.rstrip('/')
+		binpath = os.path.join(tsroot, 'bin', 'trafficserver')
+		if not os.path.isfile(binpath):
+			raise ValueError("'%s' does not exist! '%s' is not the root of a Traffic Server"
+			                 "installation" % (binpath, tsroot))
+	except OSError as e:
+		raise ValueError("Couldn't set the ATS root install directory: %s" % e) from e
 
-		if not os.path.isdir(tsroot) or\
-		   not os.path.isfile(os.path.join(tsroot, 'bin', 'trafficserver')):
-
-			return False
-	except (OSError, AttributeError, ValueError) as e:
-		raise ValueError from e
-
-	global TS_ROOT
-	TS_ROOT = tsroot
-	return True
+	return tsroot
 
 
-#: Holds the full URL including schema (e.g. 'http') and port that points at Traffic Ops
-TO_URL = None
-
-def setTOURL(url:str) -> bool:
+def parseTOURL(url:str, verify:bool) -> typing.Tuple[bool, str, int]:
 	"""
-	Sets the :data:`TO_URL` global variable and verifies it
+	Parses and verifies the passed URL and breaks it into parts for the caller
 
-	:param url: A full URL (including schema - and port when necessary) specifying the location of
-		a running Traffic Ops server
-	:returns: whether or not the URL could be set successfully
-	:raises ValueError: when ``url`` is not a :const:`str`
+	:param url: At minimum an FQDN for a Traffic Ops server, but can include schema and port number
+	:param verify: Whether or not to verify the server's SSL certificate
+	:returns: Whether or not the Traffic Ops server uses SSL (http vs https), the server's FQDN, and the port on which it listens
+	:raises ValueError: if ``url`` does not point at a valid HTTP server or is incorrectly formatted
 	"""
-	global VERIFY
+	url = url.rstrip('/')
+
+	useSSL, host, port = True, None, 443
+
 	try:
-		url = url.rstrip('/')
-		_ = requests.head(url, verify=VERIFY)
+		_ = requests.head(url, verify=verify)
 	except requests.exceptions.RequestException as e:
-		logging.error("%s", e)
-		logging.debug("%s", e, exc_info=True, stack_info=True)
-		return False
-	except (AttributeError, ValueError) as e:
-		raise ValueError from e
+		raise ValueError("Cannot contact any server at '%s' (%s)" % (url, e)) from e
 
-	global TO_URL
-	TO_URL = url
+	if url.lower().startswith("http://"):
+		port = 80
+		useSSL = False
+		url = url[7:]
+	elif url.lower().startswith("https://"):
+		url = url[8:]
 
-	return True
+	# I'm assuming here that a valid FQDN won't include ':' - and it shouldn't
+	portpoint = url.find(':')
+	if portpoint > 0:
+		host = url[:portpoint]
+		port = int(url[portpoint+1:])
+	else:
+		host = url
 
-
-#: Holds a Mojolicious cookie for validating connections to Traffic Ops
-TO_COOKIE = None
-
-#: Holds the login information for re-obtaining a cookie when the one in :data:`TO_COOKIE` expires
-TO_LOGIN = None
-
-def setTOCredentials(login:str) -> bool:
-	"""
-	Parses and returns a JSON-encoded login string for the Traffic Ops API.
-	This will set :data:`TO_COOKIE` and :data:`TO_LOGIN` if login is successful.
-
-	:param login: The raw login info as passed on the command line (e.g. 'username:password')
-	:raises ValueError: if ``login`` is not a :const:`str`.
-	:returns: whether or not the login could be set and validated successfully
-	"""
-	try:
-		login = '{{"u": "{0}", "p": "{1}"}}'.format(*login.split(':'))
-	except IndexError:
-		logging.critical("Bad Traffic_Ops_Login: '%s' - should be like 'username:password'", login)
-		return False
-	except (AttributeError, ValueError) as e:
-		raise ValueError from e
-
-	global TO_LOGIN
-	TO_LOGIN = login
-
-	try:
-		getNewTOCookie()
-	except PermissionError:
-		return False
-
-	return True
-
-def getNewTOCookie():
-	"""
-	Re-obtains a cookie from Traffic Ops based on the login credentials in :data:`TO_LOGIN`
-
-	:raises PermissionError: if :data:`TO_LOGIN` or :data:`TO_URL` are unset, invalid,
-		or the wrong type
-	"""
-	global TO_URL, TO_LOGIN, VERIFY, TO_COOKIE
-	if TO_URL is None or not isinstance(TO_URL, str) or\
-	   TO_LOGIN is None or not isinstance(TO_LOGIN, str):
-		raise PermissionError("TO_URL and TO_LOGIN must be set prior to calling this function!")
-
-	try:
-		# Obtain login cookie
-		cookie = requests.post(TO_URL + '/api/1.3/user/login', data=TO_LOGIN, verify=VERIFY)
-	except requests.exceptions.RequestException as e:
-		logging.critical("Login credentials rejected by Traffic Ops")
-		raise PermissionError from e
-
-	if not cookie.cookies or 'mojolicious' not in cookie.cookies:
-		logging.error("Response code: %d", cookie.status_code)
-		logging.warning("Response Headers: %s", cookie.headers)
-		logging.debug("Response: %s", cookie.content)
-		raise PermissionError("Login credentials rejected by Traffic Ops")
-
-	TO_COOKIE = [c for c in cookie.cookies if c.name == "mojolicious"][0]
-
-def getTOCookie() -> typing.Dict[str, str]:
-	"""
-	A small, convenience wrapper for getting a current, valid Traffic Ops authentication cookie. If
-	:data:`TO_COOKIE` is expired, this function requests a new one from Traffic Ops
-
-	:returns: A cookie dataset that may be passed directly to :mod:`requests` functions
-	:raises PermissionError: if :data:`TO_LOGIN` and/or :data:`TO_URL` are unset, invalid, or the
-		wrong type
-	"""
-	global TO_COOKIE
-
-	if datetime.datetime.now().timestamp() >= TO_COOKIE.expires:
-		getNewTOCookie()
-
-	return {TO_COOKIE.name: TO_COOKIE.value}
+	return useSSL, host, port

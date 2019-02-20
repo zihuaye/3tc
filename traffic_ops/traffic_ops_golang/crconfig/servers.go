@@ -22,6 +22,7 @@ package crconfig
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -55,7 +56,7 @@ func makeCRConfigServers(cdn string, tx *sql.Tx, cdnDomain string) (
 	monitors := map[string]tc.CRConfigMonitor{}
 	for host, s := range allServers {
 		switch {
-		case *s.ServerType == RouterTypeName:
+		case *s.ServerType == tc.RouterTypeName:
 			status := tc.CRConfigRouterStatus(*s.ServerStatus)
 			routers[host] = tc.CRConfigRouter{
 				APIPort:      s.APIPort,
@@ -68,7 +69,7 @@ func makeCRConfigServers(cdn string, tx *sql.Tx, cdnDomain string) (
 				Profile:      s.Profile,
 				ServerStatus: &status,
 			}
-		case *s.ServerType == MonitorTypeName:
+		case *s.ServerType == tc.MonitorTypeName:
 			monitors[host] = tc.CRConfigMonitor{
 				FQDN:         s.Fqdn,
 				HTTPSPort:    s.HttpsPort,
@@ -79,7 +80,7 @@ func makeCRConfigServers(cdn string, tx *sql.Tx, cdnDomain string) (
 				Profile:      s.Profile,
 				ServerStatus: s.ServerStatus,
 			}
-		case strings.HasPrefix(*s.ServerType, EdgeTypePrefix) || strings.HasPrefix(*s.ServerType, MidTypePrefix):
+		case strings.HasPrefix(*s.ServerType, tc.EdgeTypePrefix) || strings.HasPrefix(*s.ServerType, tc.MidTypePrefix):
 			if s.RoutingDisabled == 0 {
 				s.CRConfigTrafficOpsServer.DeliveryServices = serverDSes[tc.CacheName(host)]
 			}
@@ -190,10 +191,12 @@ select s.host_name, ds.xml_id
 from deliveryservice_server as dss
 inner join server as s on dss.server = s.id
 inner join deliveryservice as ds on ds.id = dss.deliveryservice
+inner join type as dt on dt.id = ds.type
 inner join profile as p on p.id = s.profile
 inner join status as st ON st.id = s.status
 where ds.cdn_id = (select id from cdn where name = $1)
-and ds.active = true
+and ds.active = true` +
+		fmt.Sprintf(" and dt.name != '%s' ", tc.DSTypeAnyMap) + `
 and p.routing_disabled = false
 and (st.name = 'REPORTED' or st.name = 'ONLINE' or st.name = 'ADMIN_DOWN')
 `
@@ -235,7 +238,8 @@ inner join deliveryservice_regex as dsr on dsr.regex = r.id
 inner join deliveryservice as ds on ds.id = dsr.deliveryservice
 inner join type as dt on dt.id = ds.type
 where ds.cdn_id = (select id from cdn where name = $1)
-and ds.active = true
+and ds.active = true` +
+		fmt.Sprintf(" and dt.name != '%s' ", tc.DSTypeAnyMap) + `
 and rt.name = 'HOST_REGEXP'
 order by dsr.set_number asc
 `
@@ -372,4 +376,16 @@ func getCDNNameFromID(id int, tx *sql.Tx) (string, bool, error) {
 		return "", false, errors.New("Error querying CDN name: " + err.Error())
 	}
 	return name, true, nil
+}
+
+// getGlobalParam returns the global parameter with the requested name, whether it existed, and any error
+func getGlobalParam(tx *sql.Tx, name string) (string, bool, error) {
+	val := ""
+	if err := tx.QueryRow(`SELECT value FROM parameter WHERE config_file = 'global' and name = $1`, name).Scan(&val); err != nil {
+		if err == sql.ErrNoRows {
+			return "", false, nil
+		}
+		return "", false, errors.New("querying global parameter '" + name + "': " + err.Error())
+	}
+	return val, true, nil
 }

@@ -28,7 +28,6 @@ import (
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/api"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/test"
 	"github.com/jmoiron/sqlx"
-
 	sqlmock "gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
 
@@ -49,6 +48,7 @@ func getTestDivisions() []tc.Division {
 }
 
 func TestGetDivisions(t *testing.T) {
+
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
@@ -74,7 +74,11 @@ func TestGetDivisions(t *testing.T) {
 	mock.ExpectCommit()
 
 	reqInfo := api.APIInfo{Tx: db.MustBegin(), Params: map[string]string{"dsId": "1"}}
-	vals, userErr, sysErr, _ := GetTypeSingleton()(&reqInfo).Read()
+	obj := TODivision{
+		api.APIInfoImpl{&reqInfo},
+		tc.DivisionNullable{},
+	}
+	vals, userErr, sysErr, _ := obj.Read()
 	if userErr != nil || sysErr != nil {
 		t.Errorf("Read expected: no errors, actual: %v %v", userErr, sysErr)
 	}

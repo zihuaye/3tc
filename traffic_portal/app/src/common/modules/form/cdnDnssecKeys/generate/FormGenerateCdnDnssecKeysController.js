@@ -20,6 +20,7 @@
 var FormGenerateCdnDnssecKeysController = function(cdn, dnssecKeysRequest, $scope, $location, $uibModal, formUtils, locationUtils, cdnService, messageModel) {
 
 	var generate = function() {
+		$scope.dnssecKeysRequest.effectiveDate = moment($scope.effectiveDate).format('x');
 		cdnService.generateDNSSECKeys($scope.dnssecKeysRequest)
 			.then(function(result) {
 				messageModel.setMessages(result.data.alerts, true);
@@ -28,8 +29,17 @@ var FormGenerateCdnDnssecKeysController = function(cdn, dnssecKeysRequest, $scop
 	};
 
 	$scope.cdn = cdn;
-
 	$scope.dnssecKeysRequest = dnssecKeysRequest;
+	$scope.effectiveDate = $scope.dnssecKeysRequest.effectiveDate;
+
+	var ctrl = this;
+	ctrl.zeroSeconds = function () {
+		if ($scope.effectiveDate) {
+			$scope.effectiveDate = $scope.effectiveDate.set({ 'seconds' : 0, });
+		}
+	};
+	$scope.effectiveDate = moment().utc();
+	ctrl.zeroSeconds();
 
 	$scope.generateLabel = function() {
 		var label = 'Generate DNSSEC Keys';
@@ -38,6 +48,12 @@ var FormGenerateCdnDnssecKeysController = function(cdn, dnssecKeysRequest, $scop
 		}
 		return label;
 	};
+
+	$scope.msg = 'This will generate DNSSEC keys for the ' + cdn.name + ' CDN and all associated Delivery Services.';
+
+	if ($scope.ksk_new) {
+		$scope.msg = 'This will regenerate DNSSEC keys for the ' + cdn.name + ' CDN and all associated Delivery Services. A new DS Record will be created and needs to be added to the parent zone in order for DNSSEC to work properly.';
+	}
 
 	$scope.confirmGenerate = function() {
 		var title = 'Generate DNSSEC Keys [ ' + cdn.name + ' ]',

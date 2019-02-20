@@ -22,7 +22,11 @@ and performs a variety of operations based on the run mode.
 
 import os
 import logging
-import requests
+import random
+import time
+
+from .configuration import Configuration
+from .utils import getYesNoResponse as getYN
 
 #: A constant that holds the absolute path to the status file directory
 STATUS_FILE_DIR = "/opt/ort/status"
@@ -31,79 +35,80 @@ class ORTException(Exception):
 	"""Signifies an ORT related error"""
 	pass
 
-def syncDSState() -> bool:
+def syncDSState(conf:Configuration) -> bool:
 	"""
-	Queries Traffic Ops for the Delivery Service's sync state
+	Queries Traffic Ops for the :term:`Delivery Service`'s sync state
 
-	:raises ORTException: when something goes wrong
+	:param conf: The script's configuration
+
 	:returns: whether or not an update is needed
+	:raises ConnectionError: when something goes wrong communicating with Traffic Ops
 	"""
-	from . import to_api, configuration
 	logging.info("starting syncDS state fetch")
 
-	try:
-		updateStatus = to_api.getUpdateStatus(configuration.HOSTNAME[0])[0]
-	except (IndexError, ConnectionError, requests.exceptions.RequestException) as e:
-		logging.critical("Server configuration not found in Traffic Ops!")
-		raise ORTException from e
-	except PermissionError as e:
-		logging.critical("Failed to authenticate with the Traffic Ops server!")
-		raise ORTException from e
+	updateStatus = conf.api.getMyUpdateStatus()[0]
 
 	logging.debug("Retrieved raw update status: %r", updateStatus)
 
-	return 'upd_pending' in updateStatus and updateStatus['upd_pending']
+	if 'upd_pending' not in updateStatus:
+		raise ConnectionError("Malformed API response doesn't indicate if updates are pending!")
 
-def revalidateState() -> bool:
+	if not updateStatus['upd_pending']:
+		return False
+
+	if conf.wait_for_parents and 'parent_pending' in updateStatus and updateStatus["parent_pending"]:
+		logging.warning("One or more parents still have updates pending, waiting for parents.")
+		return False
+
+	if conf.mode is Configuration.Modes.SYNCDS and conf.dispersion:
+		disp = random.randint(0, conf.dispersion)
+		logging.info("Dispersion is set. Will sleep for %d seconds before continuing", disp)
+		time.sleep(disp)
+
+	return True
+
+def revalidateState(conf:Configuration) -> bool:
 	"""
 	Checks the revalidation status of this server in Traffic Ops
 
+	:param conf: The script's configuration
+
 	:returns: whether or not this server has a revalidation pending
-	:raises ORTException:
+	:raises ConnectionError: when something goes wrong communicating with Traffic Ops
 	"""
-	from . import to_api, configuration as conf
 	logging.info("starting revalidation state fetch")
 
-	try:
-		to_api.getUpdateStatus(conf.HOSTNAME[0])[0]
-	except (IndexError, ConnectionError, requests.exceptions.RequestException) as e:
-		logging.critical("Server configuration not found in Traffic Ops!")
-		raise ORTException from e
-	except PermissionError as e:
-		logging.critical("Failed to authenticate with the Traffic Ops server!")
-		raise ORTException from e
+	updateStatus = conf.api.getMyUpdateStatus()[0]
 
 	logging.debug("Retrieved raw revalidation status: %r", updateStatus)
-	if conf.WAIT_FOR_PARENTS and "parent_reval_pending" in updateStatus and updateStatus["parent_reval_pending"]:
+	if (conf.wait_for_parents and
+		"parent_reval_pending" in updateStatus and
+	    updateStatus["parent_reval_pending"]):
 		logging.info("Parent revalidation is pending - waiting for parent")
 		return False
 
 	return "reval_pending" in updateStatus and updateStatus["reval_pending"]
 
-def deleteOldStatusFiles(myStatus:str):
+def deleteOldStatusFiles(myStatus:str, conf:Configuration):
 	"""
 	Attempts to delete any and all old status files
 
 	:param myStatus: the current status - files by this name will not be deleted
-	:raises ConnectionError: if there's an issue retrieving a list of statuses from
-		Traffic Ops
+	:param conf: An object containing the configuration of :program:`traffic_ops_ort`
+	:raises ConnectionError: if there's an issue retrieving a list of statuses from Traffic Ops
 	:raises OSError: if a file cannot be deleted for any reason
 	"""
-	from .configuration import MODE, Modes
-	from . import to_api, utils
-
 	logging.info("Deleting old status files (those that are not %s)", myStatus)
 
-	doDeleteFiles = MODE is not Modes.REPORT
+	doDeleteFiles = conf.mode is not Configuration.Modes.REPORT
 
-	for status in to_api.getStatuses():
+	for status in conf.api.get_statuses()[0]:
 
 		# Only the status name matters
 		try:
-			status = status["name"]
+			status = status.name
 		except KeyError as e:
 			logging.debug("Bad status object: %r", status)
-			logging.debug("Original error: %s", e, exc_info=True, stack_info=True)
 			raise ConnectionError from e
 
 		if doDeleteFiles and status != myStatus:
@@ -113,51 +118,45 @@ def deleteOldStatusFiles(myStatus:str):
 			logging.info("File '%s' to be deleted", fname)
 
 			# check for user confirmation before deleting files in 'INTERACTIVE' mode
-			if MODE != Modes.INTERACTIVE or utils.getYesNoResponse("Delete file %s?" % fname):
+			if conf.mode is not Configuration.Modes.INTERACTIVE or getYN("Delete file %s?" % fname):
 				logging.warning("Deleting file '%s'!", fname)
 				os.remove(fname)
 
-def setStatusFile() -> bool:
+def setStatusFile(conf:Configuration) -> bool:
 	"""
 	Attempts to set the status file according to this server's reported status in Traffic Ops.
 
 	.. warning:: This will create the directory '/opt/ORTstatus' if it does not exist, and may
 		delete files there without warning!
 
+	:param conf: An object that contains the configuration for :program:`traffic_ops_ort`
 	:returns: whether or not the status file could be set properly
 	"""
 	global STATUS_FILE_DIR
-	from .configuration import MODE, Modes
-	from . import to_api, utils
 	logging.info("Setting status file")
 
-	if not isinstance(MODE, Modes):
-		logging.error("MODE is not set to a valid Mode (from traffic_ops_ort.configuration.Modes)!")
-		return False
-
 	try:
-		myStatus = to_api.getMyStatus()
+		myStatus = conf.api.getMyStatus()
 	except ConnectionError as e:
 		logging.error("Failed to set status file - Traffic Ops connection failed")
 		return False
 
 	if not os.path.isdir(STATUS_FILE_DIR):
 		logging.warning("status directory does not exist, creating...")
-		doMakeDir = MODE is not Modes.REPORT
+		doMakeDir = conf.mode is not Configuration.Modes.REPORT
 
 		# Check for user confirmation if in 'INTERACTIVE' mode
-		if doMakeDir and (MODE is not Modes.INTERACTIVE or\
-		   utils.getYesNoResponse("Create status directory '%s'?" % STATUS_FILE_DIR, default='Y')):
+		if doMakeDir and (conf.mode is not Configuration.Modes.INTERACTIVE or
+		                  getYN("Create status directory '%s'?" % STATUS_FILE_DIR, default='Y')):
 			try:
 				os.makedirs(STATUS_FILE_DIR)
-				return False
 			except OSError as e:
 				logging.error("Failed to create status directory '%s' - %s", STATUS_FILE_DIR, e)
 				logging.debug("%s", e, exc_info=True, stack_info=True)
 				return False
 	else:
 		try:
-			deleteOldStatusFiles(myStatus)
+			deleteOldStatusFiles(myStatus, conf)
 		except ConnectionError as e:
 			logging.error("Failed to delete old status files - Traffic Ops connection failed.")
 			logging.debug("%s", e, exc_info=True, stack_info=True)
@@ -170,8 +169,8 @@ def setStatusFile() -> bool:
 	fname = os.path.join(STATUS_FILE_DIR, myStatus)
 	if not os.path.isfile(fname):
 		logging.info("File '%s' to be created", fname)
-		if MODE is not Modes.REPORT and\
-		  (MODE is not Modes.INTERACTIVE or utils.getYesNoResponse("Create file '%s'?", 'y')):
+		if conf.mode is not Configuration.Modes.REPORT and (
+		   conf.mode is not Configuration.Modes.INTERACTIVE or getYN("Create file '%s'?", 'y')):
 
 			try:
 				with open(fname, 'x'):
@@ -183,65 +182,68 @@ def setStatusFile() -> bool:
 
 	return True
 
-def processPackages() -> bool:
+def processPackages(conf:Configuration) -> bool:
 	"""
 	Manages the packages that Traffic Ops reports are required for this server.
 
+	:param conf: An object containing the configuration of :program:`traffic_ops_ort`
 	:returns: whether or not the package processing was successfully completed
 	"""
-	from . import to_api
-	from .configuration import Modes, MODE
-
 	try:
-		myPackages = to_api.getMyPackages()
-	except (ConnectionError, PermissionError) as e:
-		logging.error("Failed to fetch package list from Traffic Ops - %s", e)
-		logging.debug("%s", e, exc_info=True, stack_info=True)
-		return False
-	except ValueError as e:
-		logging.error("Got malformed response from Traffic Ops! - %s", e)
+		myPackages = conf.api.getMyPackages()
+	except ConnectionError as e:
+		logging.error("Packages not found or API response malformed! - %s", e)
 		logging.debug("%s", e, exc_info=True, stack_info=True)
 		return False
 
 	for package in myPackages:
-		if package.install():
-			if MODE is not Modes.BADASS:
+		if package.install(conf):
+			if conf.mode is not Configuration.Modes.BADASS:
 				return False
 			logging.warning("Failed to install %s, but we're BADASS, so moving on!", package)
 
 	return True
 
-def processServices() -> bool:
+def processServices(conf:Configuration) -> bool:
 	"""
 	Manages the running processes of the server, according to an ancient system known as 'chkconfig'
 
+	:param conf: An object containing the configuration for :program:`traffic_ops_ort`
 	:returns: whether or not the service processing was completed successfully
 	"""
 	from . import services
-	from .to_api import getMyChkconfig
 
-	chkconfig = getMyChkconfig()
+	if not services.HAS_SYSTEMD:
+		logging.warning("This system doesn't have systemd, services cannot be enabled/disabled")
+		return True
 
-	logging.debug("/ort/<hostname>/chkconfig response: %r", chkconfig)
+
+	try:
+		chkconfig = conf.api.getMyChkconfig()
+	except ConnectionError as e:
+		logging.error("Failed to fetch 'chkconfig' from Traffic Ops! (%s)", e)
+		logging.debug("%r", e, exc_info=True, stack_info=True)
+		return False
 
 	for item in chkconfig:
 		logging.debug("Processing item %r", item)
 
-		if not services.setServiceStatus(item):
+		if not services.setServiceStatus(item, conf.mode):
 			return False
 
 	return True
 
-def processConfigurationFiles() -> bool:
+def processConfigurationFiles(conf:Configuration) -> bool:
 	"""
 	Updates and backs up all of a server's configuration files.
 
+	:param conf: An object containing the configuration for :program:`traffic_ops_ort`
 	:returns: whether or not the configuration changes were successful
 	"""
-	from . import config_files, to_api, configuration
+	from . import config_files, services
 
 	try:
-		config_files.initBackupDir()
+		config_files.initBackupDir(conf.mode)
 	except OSError as e:
 		logging.error("Couldn't create backup directory!")
 		logging.warning("%s", e)
@@ -249,53 +251,52 @@ def processConfigurationFiles() -> bool:
 		return False
 
 	try:
-		myFiles = to_api.getMyConfigFiles()
+		myFiles = conf.api.getMyConfigFiles(conf)
 	except ConnectionError as e:
-		logging.error("Failed to fetch configuration files - Traffic Ops connection failed! %s",e)
-		logging.debug("%s", e, exc_info=True, stack_info=True)
-		return False
-	except ValueError as e:
-		logging.error("Malformed configuration file response from Traffic Ops!")
+		logging.critical("Failed to fetch configuration files; Traffic Ops connection failed! %s",e)
 		logging.debug("%s", e, exc_info=True, stack_info=True)
 		return False
 
 	for file in myFiles:
 		try:
-			file = config_files.ConfigFile(file)
+			file = config_files.ConfigFile(file, conf.TOURL)
 			logging.info("\n============ Processing File: %s ============", file.fname)
-			file.update()
+			if file.update(conf) and file.fname in services.FILES_THAT_REQUIRE_RELOADS:
+				services.NEEDED_RELOADS.add(services.FILES_THAT_REQUIRE_RELOADS[file.fname])
 			logging.info("\n============================================\n")
 
 		# A bad object could just reflect an inconsistent reply structure from the API, so BADASSes
 		# will attempt to continue. However, an issue updating a valid configuration is not
 		# recoverable, even for BADASSes
-		except config_files.ConfigurationError as e:
-			logging.error("An error occurred while trying to update %s", file.name)
+		except OSError as e:
+			logging.error("An error occurred while trying to update %s", file.fname)
 			logging.debug("%s", e, exc_info=True, stack_info=True)
 			return False
 		except ValueError as e:
-			logging.error("%s does not appear to be a valid 'configfile' object!")
+			logging.error("%s does not appear to be a valid 'configfile' object, or has invalid contents!")
 			logging.debug("%s", e, exc_info=True, stack_info=True)
-			if configuration.MODE is not configuration.Modes.BADASS:
-				return False
-			logging.warning("Moving on because we're BADASS")
+			return False
 
 	return True
 
-def run() -> int:
+def run(conf:Configuration) -> int:
 	"""
 	This function is the entrypoint into the script's main flow from :func:`traffic_ops_ort.doMain`
-	It runs the appropriate actions depending on the run mode
+	It runs the appropriate actions depending on the run mode.
+
+	:param conf: An object that holds the script's configuration
 
 	:returns: an exit code for the script
 	"""
-	from . import configuration, to_api, utils, services
+	from . import services
 
 	# If this is just a revalidation, then we can exit if there's no revalidation pending
-	if configuration.MODE == configuration.Modes.REVALIDATE:
+	if conf.mode is Configuration.Modes.REVALIDATE:
 		try:
-			updateRequired = revalidateState()
-		except ORTException as e:
+			updateRequired = revalidateState(conf)
+		except ConnectionError as e:
+			logging.critical("Server configuration unreachable, or not found in Traffic Ops!")
+			logging.error(e)
 			logging.debug("%r", e, exc_info=True, stack_info=True)
 			return 2
 
@@ -309,30 +310,32 @@ def run() -> int:
 	# changes
 	else:
 		try:
-			updateRequired = syncDSState()
-		except ORTException as e:
+			updateRequired = syncDSState(conf)
+		except ConnectionError as e:
+			logging.critical("Server configuration unreachable, or not found in Traffic Ops!")
+			logging.error(e)
 			logging.debug("%r", e, exc_info=True, stack_info=True)
 			return 2
 
 		# Bail on failures - unless this script is BADASS!
-		if not setStatusFile():
-			if configuration.MODE is not configuration.Modes.BADASS:
+		if not setStatusFile(conf):
+			if conf.mode is not Configuration.Modes.BADASS:
 				logging.critical("Failed to set status as specified by Traffic Ops")
 				return 2
 			logging.warning("Failed to set status but we're BADASS, so moving on.")
 
 		logging.info("\nProcessing Packages...")
-		if not processPackages():
+		if not processPackages(conf):
 			logging.critical("Failed to process packages")
-			if configuration.MODE is not configuration.Modes.BADASS:
+			if conf.mode is not Configuration.Modes.BADASS:
 				return 2
 			logging.warning("Package processing failed but we're BADASS, so attempting to move on")
 		logging.info("Done.\n")
 
 		logging.info("\nProcessing Services...")
-		if not processServices():
+		if not processServices(conf):
 			logging.critical("Failed to process services.")
-			if configuration.MODE is not configuration.Modes.BADASS:
+			if conf.mode is not Configuration.Modes.BADASS:
 				return 2
 			logging.warning("Service processing failed but we're BADASS, so attempting to move on")
 		logging.info("Done.\n")
@@ -340,26 +343,25 @@ def run() -> int:
 
 	# All modes process configuration files
 	logging.info("\nProcessing Configuration Files...")
-	if not processConfigurationFiles():
+	if not processConfigurationFiles(conf):
 		logging.critical("Failed to process configuration files.")
 		return 2
 	logging.info("Done.\n")
 
 	if updateRequired:
-		if configuration.MODE is not configuration.Modes.INTERACTIVE or\
-		   utils.getYesNoResponse("Update Traffic Ops?", default='Y'):
+		if (conf.mode is not Configuration.Modes.INTERACTIVE or
+		    getYN("Update Traffic Ops?", default='Y')):
 
 			logging.info("\nUpdating Traffic Ops...")
-			to_api.updateTrafficOps()
+			conf.api.updateTrafficOps(conf.mode)
 			logging.info("Done.\n")
 		else:
 			logging.warning("Traffic Ops was not notified of changes. You should do this manually.")
 
-		return 0
+	else:
+		logging.info("Traffic Ops update not necessary")
 
-	logging.info("Traffic Ops update not necessary")
-
-	if services.NEEDED_RELOADS and not services.doReloads():
+	if services.NEEDED_RELOADS and not services.doReloads(conf):
 		logging.critical("Failed to reload all configuration changes")
 		return 2
 

@@ -22,11 +22,15 @@ package crconfig
 import (
 	"database/sql"
 	"errors"
+	"net/url"
+	"strings"
 
+	"github.com/apache/trafficcontrol/lib/go-log"
 	"github.com/apache/trafficcontrol/lib/go-tc"
 )
 
-func Make(tx *sql.Tx, cdn, user, toHost, reqPath, toVersion string) (*tc.CRConfig, error) {
+// Make creates and returns the CRConfig from the database.
+func Make(tx *sql.Tx, cdn, user, toHost, reqPath, toVersion string, useClientReqHost bool, emulateOldPath bool) (*tc.CRConfig, error) {
 	crc := tc.CRConfig{}
 	err := error(nil)
 
@@ -49,8 +53,44 @@ func Make(tx *sql.Tx, cdn, user, toHost, reqPath, toVersion string) (*tc.CRConfi
 		return nil, errors.New("Error getting Delivery Services: " + err.Error())
 	}
 
-	// TODO change to real reqPath, and verify everything works. Currently emulates the existing TO, in case anything relies on it
-	emulateOldPath := "/tools/write_crconfig/" + cdn
-	crc.Stats = makeStats(cdn, user, toHost, emulateOldPath, toVersion)
+	if !useClientReqHost {
+		paramTMURL, ok, err := getGlobalParam(tx, "tm.url")
+		if err != nil {
+			return nil, errors.New("getting global 'tm.url' parameter: " + err.Error())
+		}
+		if !ok {
+			log.Warnln("Making CRConfig: no global tm.url parameter found! Using request host header instead!")
+		}
+		toHost = getTMURLHost(paramTMURL)
+	}
+
+	if emulateOldPath {
+		reqPath = "/tools/write_crconfig/" + cdn
+	}
+
+	crc.Stats = makeStats(cdn, user, toHost, reqPath, toVersion)
 	return &crc, nil
+}
+
+// getTMURLHost returns the FQDN from a tm.url global parameter, which should be either an FQDN or a Hostname.
+// If tmURL is a valid URL, the FQDN is returned.
+// if tmURL is not a valid URL, it is returned with any leading 'http://' or 'http://' removed, and everything after the next '/' removed.
+func getTMURLHost(tmURL string) string {
+	if !strings.HasPrefix(tmURL, "http://") && !strings.HasPrefix(tmURL, "https://") {
+		tmURL = "http://" + tmURL // if it doesn't begin with "http://", add it so it's a valid URL to parse
+	}
+	uri, err := url.Parse(tmURL)
+	if err == nil {
+		return uri.Host
+	}
+
+	// if it isn't a valid URL, do the best we can: strip the protocol and path
+	tmURL = strings.TrimPrefix(tmURL, "https://")
+	tmURL = strings.TrimPrefix(tmURL, "http://")
+	pathStart := strings.Index(tmURL, "/")
+	if pathStart == -1 {
+		return tmURL
+	}
+	tmURL = tmURL[:pathStart]
+	return tmURL
 }

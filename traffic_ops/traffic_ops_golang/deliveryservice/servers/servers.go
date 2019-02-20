@@ -23,6 +23,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -32,6 +33,7 @@ import (
 	"github.com/apache/trafficcontrol/lib/go-util"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/api"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/auth"
+	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/dbhelpers"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/deliveryservice"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/tenant"
 
@@ -42,13 +44,9 @@ import (
 
 // TODeliveryServiceRequest provides a type alias to define functions on
 type TODeliveryServiceServer struct {
-	ReqInfo *api.APIInfo `json:"-"`
+	api.APIInfoImpl `json:"-"`
 	tc.DeliveryServiceServer
-}
-
-func GetRefType(inf *api.APIInfo) *TODeliveryServiceServer {
-	s := TODeliveryServiceServer{ReqInfo: inf}
-	return &s
+	TenantIDs pq.Int64Array `json:"-" db:"accessibleTenants"`
 }
 
 func (dss TODeliveryServiceServer) GetKeyFieldsInfo() []api.KeyFieldInfo {
@@ -111,7 +109,9 @@ func ReadDSSHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer inf.Close()
 
-	results, err := GetRefType(inf).readDSS(inf.Tx, inf.User, inf.Params, inf.IntParams)
+	dss := TODeliveryServiceServer{}
+	dss.SetInfo(inf)
+	results, err := dss.readDSS(inf.Tx, inf.User, inf.Params, inf.IntParams)
 	if err != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, err)
 		return
@@ -140,7 +140,21 @@ func (dss *TODeliveryServiceServer) readDSS(tx *sqlx.Tx, user *auth.CurrentUser,
 		orderby = "deliveryService"
 	}
 
-	query, err := selectQuery(orderby, strconv.Itoa(limit), strconv.Itoa(offset))
+	tenancyEnabled, err := tenant.IsTenancyEnabledTx(tx.Tx)
+	if err != nil {
+		return nil, errors.New("checking if tenancy is enabled: " + err.Error())
+	}
+	if tenancyEnabled {
+		tenantIDs, err := tenant.GetUserTenantIDListTx(tx.Tx, user.TenantID)
+		if err != nil {
+			return nil, errors.New("getting user tenant ID list: " + err.Error())
+		}
+		for _, id := range tenantIDs {
+			dss.TenantIDs = append(dss.TenantIDs, int64(id))
+		}
+	}
+
+	query, err := selectQuery(orderby, strconv.Itoa(limit), strconv.Itoa(offset), tenancyEnabled)
 	if err != nil {
 		return nil, errors.New("creating query for DeliveryserviceServers: " + err.Error())
 	}
@@ -162,7 +176,7 @@ func (dss *TODeliveryServiceServer) readDSS(tx *sqlx.Tx, user *auth.CurrentUser,
 	return &tc.DeliveryServiceServerResponse{orderby, servers, page, limit}, nil
 }
 
-func selectQuery(orderBy string, limit string, offset string) (string, error) {
+func selectQuery(orderBy string, limit string, offset string, useTenancy bool) (string, error) {
 	selectStmt := `SELECT
 	s.deliveryService,
 	s.server,
@@ -181,6 +195,14 @@ func selectQuery(orderBy string, limit string, offset string) (string, error) {
 	orderBy, ok := allowedOrderByCols[orderBy]
 	if !ok {
 		return "", errors.New("orderBy '" + orderBy + "' not permitted")
+	}
+
+	// TODO refactor to use dbhelpers.AddTenancyCheck
+	if useTenancy {
+		selectStmt += `
+JOIN deliveryservice d on s.deliveryservice = d.id
+WHERE d.tenant_id = ANY(CAST(:accessibleTenants AS bigint[]))
+`
 	}
 
 	if orderBy != "" {
@@ -239,7 +261,7 @@ func GetReplaceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	xmlID, ok, err := deliveryservice.GetXMLID(inf.Tx.Tx, *dsId)
+	ds, ok, err := GetDSInfo(inf.Tx.Tx, *dsId)
 	if err != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("deliveryserviceserver getting XMLID: "+err.Error()))
 		return
@@ -248,7 +270,7 @@ func GetReplaceHandler(w http.ResponseWriter, r *http.Request) {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusBadRequest, errors.New("no delivery service with that ID exists"), nil)
 		return
 	}
-	if userErr, sysErr, errCode := tenant.Check(inf.User, xmlID, inf.Tx.Tx); userErr != nil || sysErr != nil {
+	if userErr, sysErr, errCode := tenant.Check(inf.User, ds.Name, inf.Tx.Tx); userErr != nil || sysErr != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, errCode, userErr, sysErr)
 		return
 	}
@@ -272,6 +294,12 @@ func GetReplaceHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		respServers = append(respServers, server)
 	}
+
+	if err := deliveryservice.EnsureParams(inf.Tx.Tx, *dsId, ds.Name, ds.EdgeHeaderRewrite, ds.MidHeaderRewrite, ds.RegexRemap, ds.CacheURL, ds.SigningAlgorithm, ds.Type); err != nil {
+		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("deliveryservice_server replace ensuring ds parameters: "+err.Error()))
+		return
+	}
+
 	api.WriteRespAlertObj(w, r, tc.SuccessLevel, "server assignements complete", tc.DSSMapResponse{*dsId, *payload.Replace, respServers})
 }
 
@@ -291,18 +319,19 @@ func GetCreateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer inf.Close()
 
-	if userErr, sysErr, errCode := tenant.Check(inf.User, inf.Params["xml_id"], inf.Tx.Tx); userErr != nil || sysErr != nil {
+	dsName := inf.Params["xml_id"]
+
+	if userErr, sysErr, errCode := tenant.Check(inf.User, dsName, inf.Tx.Tx); userErr != nil || sysErr != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, errCode, userErr, sysErr)
 		return
 	}
 
-	dsID := 0
-	if err := inf.Tx.Tx.QueryRow(selectDeliveryService(), inf.Params["xml_id"]).Scan(&dsID); err != nil {
-		if err == sql.ErrNoRows {
-			api.HandleErr(w, r, inf.Tx.Tx, http.StatusNotFound, nil, errors.New("delivery service not found"))
-			return
-		}
+	ds, ok, err := GetDSInfoByName(inf.Tx.Tx, dsName)
+	if err != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("ds servers create scanning: "+err.Error()))
+		return
+	} else if !ok {
+		api.HandleErr(w, r, inf.Tx.Tx, http.StatusNotFound, nil, errors.New("delivery service not found"))
 		return
 	}
 
@@ -312,10 +341,10 @@ func GetCreateHandler(w http.ResponseWriter, r *http.Request) {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusBadRequest, errors.New("malformed JSON"), nil)
 		return
 	}
-	payload.XmlId = inf.Params["xml_id"]
+	payload.XmlId = dsName
 	serverNames := payload.ServerNames
 
-	res, err := inf.Tx.Tx.Exec(`INSERT INTO deliveryservice_server (deliveryservice, server) SELECT $1, id FROM server WHERE host_name = ANY($2::text[])`, dsID, pq.Array(serverNames))
+	res, err := inf.Tx.Tx.Exec(`INSERT INTO deliveryservice_server (deliveryservice, server) SELECT $1, id FROM server WHERE host_name = ANY($2::text[])`, ds.ID, pq.Array(serverNames))
 	if err != nil {
 
 		usrErr, sysErr, code := api.ParseDBError(err)
@@ -331,12 +360,13 @@ func GetCreateHandler(w http.ResponseWriter, r *http.Request) {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusNotFound, errors.New("servers not found"), nil)
 		return
 	}
-	api.WriteResp(w, r, tc.DeliveryServiceServers{payload.ServerNames, payload.XmlId})
-}
 
-func selectDeliveryService() string {
-	query := `SELECT id FROM deliveryservice WHERE xml_id = $1`
-	return query
+	if err := deliveryservice.EnsureParams(inf.Tx.Tx, ds.ID, ds.Name, ds.EdgeHeaderRewrite, ds.MidHeaderRewrite, ds.RegexRemap, ds.CacheURL, ds.SigningAlgorithm, ds.Type); err != nil {
+		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("deliveryservice_server replace ensuring ds parameters: "+err.Error()))
+		return
+	}
+
+	api.WriteResp(w, r, tc.DeliveryServiceServers{payload.ServerNames, payload.XmlId})
 }
 
 func insertIdsQuery() string {
@@ -462,107 +492,64 @@ func dssSelectQuery() string {
 }
 
 type TODSSDeliveryService struct {
-	ReqInfo *api.APIInfo `json:"-"`
-	tc.DSSDeliveryService
-}
-
-func (dss *TODSSDeliveryService) APIInfo() *api.APIInfo {
-	return dss.ReqInfo
-}
-
-func TypeSingleton(reqInfo *api.APIInfo) api.Reader {
-	return &TODSSDeliveryService{reqInfo, tc.DSSDeliveryService{}}
+	api.APIInfoImpl `json:"-"`
+	tc.DeliveryServiceNullable
 }
 
 // Read shows all of the delivery services associated with the specified server.
 func (dss *TODSSDeliveryService) Read() ([]interface{}, error, error, int) {
-	orderby := dss.APIInfo().Params["orderby"]
-	if orderby == "" {
-		orderby = "deliveryService"
+	returnable := []interface{}{}
+	params := dss.APIInfo().Params
+	tx := dss.APIInfo().Tx.Tx
+	user := dss.APIInfo().User
+
+	if err := api.IsInt(params["id"]); err != nil {
+		return nil, errors.New("Resource not found."), nil, http.StatusNotFound //matches perl response
 	}
 
-	query := SDSSelectQuery()
-	log.Debugln("Query is ", query)
+	if _, ok := params["orderby"]; !ok {
+		params["orderby"] = "xml_id"
+	}
 
-	rows, err := dss.APIInfo().Tx.Queryx(query, dss.APIInfo().Params["id"])
+	// Query Parameters to Database Query column mappings
+	// see the fields mapped in the SQL query
+	queryParamsToSQLCols := map[string]dbhelpers.WhereColumnInfo{
+		"xml_id": dbhelpers.WhereColumnInfo{"ds.xml_id", nil},
+		"xmlId":  dbhelpers.WhereColumnInfo{"ds.xml_id", nil},
+	}
+	where, orderBy, queryValues, errs := dbhelpers.BuildWhereAndOrderBy(params, queryParamsToSQLCols)
+	if len(errs) > 0 {
+		return nil, nil, errors.New("reading server dses: " + util.JoinErrsStr(errs)), http.StatusInternalServerError
+	}
+
+	if where != "" {
+		where = where + " AND "
+	} else {
+		where = "WHERE "
+	}
+	where += "ds.id in (SELECT deliveryService FROM deliveryservice_server where server = :server)"
+
+	tenantIDs, err := tenant.GetUserTenantIDListTx(tx, user.TenantID)
 	if err != nil {
-		log.Errorf("Error querying DeliveryserviceServers: %v", err)
-		return nil, nil, errors.New("dss querying: " + err.Error()), http.StatusInternalServerError
+		log.Errorln("received error querying for user's tenants: " + err.Error())
+		return nil, nil, err, http.StatusInternalServerError
 	}
-	defer rows.Close()
+	where, queryValues = dbhelpers.AddTenancyCheck(where, queryValues, "ds.tenant_id", tenantIDs)
 
-	services := []interface{}{}
-	for rows.Next() {
-		var s tc.DSSDeliveryService
-		if err = rows.StructScan(&s); err != nil {
-			return nil, nil, errors.New("dss scanning: " + err.Error()), http.StatusInternalServerError
-		}
-		services = append(services, s)
+	query := deliveryservice.GetDSSelectQuery() + where + orderBy
+	queryValues["server"] = dss.APIInfo().Params["id"]
+	log.Debugln("generated deliveryServices query: " + query)
+	log.Debugf("executing with values: %++v\n", queryValues)
+
+	dses, errs, _ := deliveryservice.GetDeliveryServices(query, queryValues, dss.APIInfo().Tx)
+	if len(errs) > 0 {
+		return nil, nil, errors.New("reading server dses: " + util.JoinErrsStr(errs)), http.StatusInternalServerError
 	}
 
-	return services, nil, nil, http.StatusOK
-}
-
-func SDSSelectQuery() string {
-
-	selectStmt := `SELECT
- 		active,
-		ccr_dns_ttl,
-		cdn_id,
-		cacheurl,
-		check_path,
-		dns_bypass_cname,
-		dns_bypass_ip,
-		dns_bypass_ip6,
-		dns_bypass_ttl,
-		dscp,
-		display_name,
-		edge_header_rewrite,
-		geo_limit,
-		geo_limit_countries,
-		geolimit_redirect_url,
-		geo_provider,
-		global_max_mbps,
-		global_max_tps,
-		http_bypass_fqdn,
-		id,
-		ipv6_routing_enabled,
-		info_url,
-		initial_dispersion,
-		last_updated,
-		logs_enabled,
-		long_desc,
-		long_desc_1,
-		long_desc_2,
-		max_dns_answers,
-		mid_header_rewrite,
-		miss_lat,
-		miss_long,
-		multi_site_origin,
-		multi_site_origin_algorithm,
-		(SELECT o.protocol::text || '://' || o.fqdn || rtrim(concat(':', o.port::text), ':')
-		FROM origin o
-		WHERE o.deliveryservice = d.id
-		AND o.is_primary) as org_server_fqdn,
-		origin_shield,
-		profile,
-		protocol,
-		qstring_ignore,
-		range_request_handling,
-		regex_remap,
-		regional_geo_blocking,
-		remap_text,
-		routing_name,
-		ssl_key_version,
-		signing_algorithm,
-		tr_request_headers,
-		tr_response_headers,
-		tenant_id,
-		type,
-		xml_id
-	FROM deliveryservice d
-		WHERE id in (SELECT deliveryService FROM deliveryservice_server where server = $1)`
-	return selectStmt
+	for _, ds := range dses {
+		returnable = append(returnable, ds)
+	}
+	return returnable, nil, nil, http.StatusOK
 }
 
 func updateQuery() string {
@@ -574,4 +561,71 @@ func updateQuery() string {
       parameter = :parameter_id 
       RETURNING last_updated`
 	return query
+}
+
+type DSInfo struct {
+	ID                int
+	Name              string
+	Type              tc.DSType
+	EdgeHeaderRewrite *string
+	MidHeaderRewrite  *string
+	RegexRemap        *string
+	SigningAlgorithm  *string
+	CacheURL          *string
+}
+
+// GetDSInfo loads the DeliveryService fields needed by Delivery Service Servers from the database, from the ID. Returns the data, whether the delivery service was found, and any error.
+func GetDSInfo(tx *sql.Tx, id int) (DSInfo, bool, error) {
+	qry := `
+SELECT
+  ds.xml_id,
+  tp.name as type,
+  ds.edge_header_rewrite,
+  ds.mid_header_rewrite,
+  ds.regex_remap,
+  ds.signing_algorithm,
+  ds.cacheurl
+FROM
+  deliveryservice ds
+  JOIN type tp ON ds.type = tp.id
+WHERE
+  ds.id = $1
+`
+	di := DSInfo{ID: id}
+	if err := tx.QueryRow(qry, id).Scan(&di.Name, &di.Type, &di.EdgeHeaderRewrite, &di.MidHeaderRewrite, &di.RegexRemap, &di.SigningAlgorithm, &di.CacheURL); err != nil {
+		if err == sql.ErrNoRows {
+			return DSInfo{}, false, nil
+		}
+		return DSInfo{}, false, fmt.Errorf("querying delivery service server ds info '%v': %v", id, err)
+	}
+	di.Type = tc.DSTypeFromString(string(di.Type))
+	return di, true, nil
+}
+
+// GetDSInfoByName loads the DeliveryService fields needed by Delivery Service Servers from the database, from the ID. Returns the data, whether the delivery service was found, and any error.
+func GetDSInfoByName(tx *sql.Tx, dsName string) (DSInfo, bool, error) {
+	qry := `
+SELECT
+  ds.id,
+  tp.name as type,
+  ds.edge_header_rewrite,
+  ds.mid_header_rewrite,
+  ds.regex_remap,
+  ds.signing_algorithm,
+  ds.cacheurl
+FROM
+  deliveryservice ds
+  JOIN type tp ON ds.type = tp.id
+WHERE
+  ds.xml_id = $1
+`
+	di := DSInfo{Name: dsName}
+	if err := tx.QueryRow(qry, dsName).Scan(&di.ID, &di.Type, &di.EdgeHeaderRewrite, &di.MidHeaderRewrite, &di.RegexRemap, &di.SigningAlgorithm, &di.CacheURL); err != nil {
+		if err == sql.ErrNoRows {
+			return DSInfo{}, false, nil
+		}
+		return DSInfo{}, false, fmt.Errorf("querying delivery service server ds info by name '%v': %v", dsName, err)
+	}
+	di.Type = tc.DSTypeFromString(string(di.Type))
+	return di, true, nil
 }

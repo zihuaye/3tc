@@ -29,9 +29,9 @@ import (
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/api"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/test"
 	"github.com/jmoiron/sqlx"
+	sqlmock "gopkg.in/DATA-DOG/go-sqlmock.v1"
 
 	"github.com/apache/trafficcontrol/lib/go-util"
-	sqlmock "gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
 
 func getTestASNs() []tc.ASNNullable {
@@ -55,6 +55,7 @@ func getTestASNs() []tc.ASNNullable {
 }
 
 func TestGetASNs(t *testing.T) {
+
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
@@ -82,7 +83,11 @@ func TestGetASNs(t *testing.T) {
 	mock.ExpectCommit()
 	reqInfo := api.APIInfo{Tx: db.MustBegin(), Params: map[string]string{"dsId": "1"}}
 
-	asns, userErr, sysErr, _ := GetTypeSingleton()(&reqInfo).Read()
+	obj := TOASNV11{
+		api.APIInfoImpl{&reqInfo},
+		tc.ASNNullable{},
+	}
+	asns, userErr, sysErr, _ := obj.Read()
 	if userErr != nil || sysErr != nil {
 		t.Errorf("Read expected: no errors, actual: %v %v", userErr, sysErr)
 	}
@@ -116,8 +121,10 @@ func TestInterfaces(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	i := -99
-	asn := TOASNV11{nil, tc.ASNNullable{ASN: &i, CachegroupID: &i}}
-
+	asn := TOASNV11{
+		api.APIInfoImpl{nil},
+		tc.ASNNullable{ASN: &i, CachegroupID: &i},
+	}
 	errs := util.JoinErrsStr(test.SortErrors(test.SplitErrors(asn.Validate())))
 	expected := util.JoinErrsStr([]error{
 		errors.New(`'asn' must be no less than 0`),

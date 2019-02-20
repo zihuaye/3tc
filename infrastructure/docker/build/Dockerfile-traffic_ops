@@ -23,22 +23,26 @@ MAINTAINER Dan Kirkwood
 VOLUME /trafficcontrol
 
 ### Common for all sub-component builds
-RUN	yum -y install \
+RUN	rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7 && \
+	yum -y update ca-certificates && \
+	yum -y install \
 		epel-release \
 		git \
 		rpm-build && \
 	yum -y clean all
 
 ### traffic_ops specific requirements
+# NOTE: temporary workaround for removal of golang packages from CentOS 7 base repo
 RUN	yum -y install \
 		expat-devel \
 		gcc \
-		golang-1.9.4 \
 		libcurl-devel \
 		make \
 		openssl-devel \
 		perl-ExtUtils-MakeMaker \
 		tar && \
+        yum-config-manager --add-repo 'http://vault.centos.org/7.5.1804/os/x86_64/' && \
+        yum -y install --enablerepo=vault* golang-1.9.4 && \
 	yum -y clean all
 
 ADD infrastructure/docker/build/clean_build.sh /

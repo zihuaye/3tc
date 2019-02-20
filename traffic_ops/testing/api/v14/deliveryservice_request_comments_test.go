@@ -22,18 +22,10 @@ import (
 )
 
 func TestDeliveryServiceRequestComments(t *testing.T) {
-
-	CreateTestCDNs(t)
-	CreateTestTypes(t)
-	CreateTestDeliveryServiceRequests(t)
-	CreateTestDeliveryServiceRequestComments(t)
-	UpdateTestDeliveryServiceRequestComments(t)
-	GetTestDeliveryServiceRequestComments(t)
-	DeleteTestDeliveryServiceRequestComments(t)
-	DeleteTestDeliveryServiceRequests(t)
-	DeleteTestTypes(t)
-	DeleteTestCDNs(t)
-
+	WithObjs(t, []TCObj{CDNs, Types, Parameters, Tenants, DeliveryServiceRequests, DeliveryServiceRequestComments}, func() {
+		UpdateTestDeliveryServiceRequestComments(t)
+		GetTestDeliveryServiceRequestComments(t)
+	})
 }
 
 func CreateTestDeliveryServiceRequestComments(t *testing.T) {
@@ -45,6 +37,10 @@ func CreateTestDeliveryServiceRequestComments(t *testing.T) {
 	if err != nil {
 		t.Errorf("cannot GET delivery service request by xml id: %v - %v\n", dsr.XMLID, err)
 	}
+	if len(resp) != 1 {
+		t.Errorf("found %d delivery service request by xml id, expected %d: %s\n", len(resp), 1, dsr.XMLID)
+	}
+
 	respDSR := resp[0]
 
 	for _, comment := range testData.DeliveryServiceRequestComments {

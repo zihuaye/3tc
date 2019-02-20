@@ -25,13 +25,12 @@ import (
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/api"
+	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/auth"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/test"
 	"github.com/jmoiron/sqlx"
+	sqlmock "gopkg.in/DATA-DOG/go-sqlmock.v1"
 
 	"encoding/json"
-
-	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/auth"
-	sqlmock "gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
 
 func getTestParameters() []tc.ParameterNullable {
@@ -66,6 +65,7 @@ func getTestParameters() []tc.ParameterNullable {
 }
 
 func TestGetParameters(t *testing.T) {
+
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
@@ -95,11 +95,15 @@ func TestGetParameters(t *testing.T) {
 	mock.ExpectCommit()
 
 	reqInfo := api.APIInfo{
-		Tx:    db.MustBegin(),
+		Tx:     db.MustBegin(),
 		User:   &auth.CurrentUser{PrivLevel: 30},
 		Params: map[string]string{"name": "1"},
 	}
-	pps, userErr, sysErr, _ := GetTypeSingleton()(&reqInfo).Read()
+	obj := TOParameter{
+		api.APIInfoImpl{&reqInfo},
+		tc.ParameterNullable{},
+	}
+	pps, userErr, sysErr, _ := obj.Read()
 	if userErr != nil || sysErr != nil {
 		t.Errorf("Read expected: no errors, actual: %v %v", userErr, sysErr)
 	}

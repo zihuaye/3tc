@@ -27,7 +27,6 @@ import (
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/api"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/test"
 	"github.com/jmoiron/sqlx"
-
 	sqlmock "gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
 
@@ -54,6 +53,7 @@ func getTestProfileParameters() []tc.ProfileParameterNullable {
 }
 
 func TestGetProfileParameters(t *testing.T) {
+
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
@@ -80,7 +80,11 @@ func TestGetProfileParameters(t *testing.T) {
 
 	txx := db.MustBegin()
 	reqInfo := api.APIInfo{Tx: txx, Params: map[string]string{"profile": "1"}}
-	pps, userErr, sysErr, _ := GetTypeSingleton()(&reqInfo).Read()
+	obj := TOProfileParameter{
+		api.APIInfoImpl{&reqInfo},
+		tc.ProfileParameterNullable{},
+	}
+	pps, userErr, sysErr, _ := obj.Read()
 	if userErr != nil || sysErr != nil {
 		t.Errorf("Read expected: no errors, actual: %v %v", userErr, sysErr)
 	}

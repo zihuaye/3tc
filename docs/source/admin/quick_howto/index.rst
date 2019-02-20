@@ -16,23 +16,16 @@
 *******************
 Quick How To Guides
 *******************
-Traffic Control is a complicated system, and documenting it is not trivial. Sometimes a picture says more than a thousand words, so here are some screen shot based tutorials on how to use some of the more involved features.
-
-Traffic Ops
-===========
+Traffic Control is a complicated system, and documenting it is not trivial. Sometimes a picture says more than a thousand words, so here are some screenshot-based tutorials on how to use some of the more involved features.
 
 .. toctree::
 
-	multi_site.rst
-	federations.rst
-	regionalgeo.rst
-	anonymous_blocking.rst
-
-Traffic Portal
-==============
-
-.. toctree::
-
-	dnssec.rst
-	ds_requests.rst
-	steering.rst
+	multi_site
+	federations
+	regionalgeo
+	anonymous_blocking
+	dnssec
+	ds_requests
+	steering
+	ciab
+	cachegroup_fallback

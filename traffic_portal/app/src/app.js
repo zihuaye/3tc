@@ -39,6 +39,7 @@ var trafficPortal = angular.module('trafficPortal', [
         'angular-jwt',
         'chart.js',
         'angular-loading-bar',
+        'moment-picker',
 
         // public modules
         require('./modules/public').name,
@@ -71,6 +72,7 @@ var trafficPortal = angular.module('trafficPortal', [
         require('./modules/private/cdns/deliveryServices').name,
         require('./modules/private/cdns/dnssecKeys').name,
         require('./modules/private/cdns/dnssecKeys/generate').name,
+        require('./modules/private/cdns/dnssecKeys/regenerateKsk').name,
         require('./modules/private/cdns/dnssecKeys/view').name,
         require('./modules/private/cdns/edit').name,
         require('./modules/private/cdns/federations').name,
@@ -251,6 +253,7 @@ var trafficPortal = angular.module('trafficPortal', [
         require('./common/modules/form/cdn/new').name,
         require('./common/modules/form/cdnDnssecKeys').name,
         require('./common/modules/form/cdnDnssecKeys/generate').name,
+        require('./common/modules/form/cdnDnssecKeys/regenerateKsk').name,
         require('./common/modules/form/coordinate').name,
         require('./common/modules/form/coordinate/edit').name,
         require('./common/modules/form/coordinate/new').name,
@@ -398,6 +401,7 @@ var trafficPortal = angular.module('trafficPortal', [
 
         // directives
         require('./common/directives/match').name,
+        require('./common/directives/dragAndDrop').name,
 
         // services
         require('./common/service/application').name,
@@ -408,7 +412,12 @@ var trafficPortal = angular.module('trafficPortal', [
 
     ], App)
 
-        .config(function($stateProvider, $logProvider, $controllerProvider, RestangularProvider, ENV) {
+        .config(function($stateProvider, $logProvider, $controllerProvider, RestangularProvider, momentPickerProvider, ENV) {
+
+            momentPickerProvider.options({
+                minutesStep: 1,
+                maxView: 'hour'
+            });
 
             RestangularProvider.setBaseUrl(ENV.api['root']);
 

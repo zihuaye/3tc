@@ -27,7 +27,6 @@ import (
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/api"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/test"
 	"github.com/jmoiron/sqlx"
-
 	sqlmock "gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
 
@@ -50,6 +49,7 @@ func getTestStatuses() []tc.Status {
 }
 
 func TestReadStatuses(t *testing.T) {
+
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
@@ -77,7 +77,11 @@ func TestReadStatuses(t *testing.T) {
 
 	reqInfo := api.APIInfo{Tx: db.MustBegin(), Params: map[string]string{"dsId": "1"}}
 
-	statuses, userErr, sysErr, _ := GetTypeSingleton()(&reqInfo).Read()
+	obj := TOStatus{
+		api.APIInfoImpl{&reqInfo},
+		tc.StatusNullable{},
+	}
+	statuses, userErr, sysErr, _ := obj.Read()
 	if userErr != nil || sysErr != nil {
 		t.Errorf("Read expected: no errors, actual: %v %v", userErr, sysErr)
 	}

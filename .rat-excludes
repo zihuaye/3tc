@@ -33,6 +33,7 @@ selenium(?:                          MIT. Properly documented in LICENSE ){0}
 gmx(?:                               MIT. Properly documented in LICENSE ){0}
 stoppableListener(?:                 MIT. Properly documented in LICENSE ){0}
 fsnotify\.v1(?:                      MIT. Properly documented in LICENSE ){0}
+yaml\.v2(?:                          Apache 2.0. Properly documented in LICENSE ){0}
 jwt\-go(?:                           MIT. Properly documented in LICENSE ){0}
 pq(?:                                MIT. Properly documented in LICENSE ){0}
 bootstrap(?:-theme)?\.(?:css|js)(?:  MIT. Properly documented in LICENSE ){0}
@@ -73,3 +74,8 @@ bytefmt(?:                           Apache 2.0. Properly documented in LICENSE 
 siphash(?:                           CC0. Properly documented in LICENSE ){0}
 bbolt(?:                             MIT. Properly documented in LICENSE ){0}
 miekg(?:                             BSD 3-clause. Properly documented in LICENSE ){0}
+angular-chart(?:                     BSD 2-clause. Properly documented in LICENSE ){0}
+chartjs(?:                           MIT. Properly documented in LICENSE ){0}
+json-iterator(?:                     MIT. Properly documented in LICENSE ){0}
+modern-go(?:                         Apache 2.0. Properly documented in LICENSE ){0}
+angular-moment-picker(?:             MIT. Properly documented in LICENSE ){0}

@@ -16,18 +16,281 @@
 # under the License.
 
 """
-This module contains functionality for dealing with the Traffic Ops ReST API
+This module contains functionality for dealing with the Traffic Ops ReST API.
+It extends the class provided by the official Apache Traffic Control Client.
 """
 
-import datetime
 import typing
 import logging
-import requests
+
+from requests.compat import urljoin
+from requests.exceptions import RequestException
+
+from trafficops.tosession import TOSession
+from trafficops.restapi import LoginError, OperationError, InvalidJSONError
 
 from . import packaging
+from .configuration import Configuration
 
-#: Caches update statuses mapped by hostnames
-CACHED_UPDATE_STATUS = {}
+class API(TOSession):
+	"""
+	This class extends :class:`trafficops.tosession.TOSession` to provide some ease-of-use
+	functionality for getting things needed by :term:`ORT`.
+	"""
+
+	#: This should always be the latest API version supported - note this breaks compatability with
+	#: older ATC versions. Go figure.
+	VERSION = "1.4"
+
+	def __init__(self, conf:Configuration):
+		"""
+		This not only creates the API session, but log the user in immediately.
+
+		:param conf: An object that represents the configuration of :program:`traffic_ops_ort`
+		:raises LoginError: when authentication with Traffic Ops fails
+		:raises OperationError: when some anonymous error occurs communicating with the Traffic Ops server
+		"""
+		super(API, self).__init__(host_ip=conf.toHost, api_version=self.VERSION,
+		                          host_port=conf.toPort, verify_cert=conf.verify, ssl=conf.useSSL)
+
+		self.retries = conf.retries
+
+		for r in range(self.retries):
+			try:
+				logging.info("login attempt #%d", r)
+				self.login(conf.username, conf.password)
+				break
+			except (LoginError, OperationError, InvalidJSONError, RequestException) as e:
+				logging.debug("login failure: %r", e, stack_info=True, exc_info=True)
+		else:
+			raise LoginError("Failed to log in to Traffic Ops, retries exceeded.")
+
+		self.hostname = conf.shortHostname
+
+	def __enter__(self):
+		"""
+		Implements context-management for :class:`API` objects. Needs to override :class:`TOSession`
+		context-management because the connection is already established during initialization.
+		"""
+		return self
+
+	def getRaw(self, path:str) -> str:
+		"""
+		This gets the API response to a "raw" path, meaning it will queried directly without a
+		``/api/1.x`` prefix. Because the output structure of the API response is not known, this
+		returns the response body as an unprocessed string rather than a Python object via e.g.
+		Munch.
+
+		:param path: The raw path on the Traffic Ops server
+		:returns: The API response payload
+		:raises ConnectionError: When something goes wrong communicating with the Traffic Ops server
+		"""
+		for _ in range(self.retries):
+			try:
+				r = self._session.get(path)
+				break
+			except (LoginError, OperationError, InvalidJSONError, RequestException) as e:
+				logging.debug("API failure: %r", e, stack_info=True, exc_info=True)
+		else:
+			raise ConnectionError("Failed to get a valid response from Traffic Ops for %s" % path)
+
+		if r.status_code != 200 and r.status_code != 204:
+			raise ConnectionError("request for '%s' appears to have failed; reason: %s" %
+			                                  (path,                             r.reason))
+
+		return r.text
+
+	def getMyPackages(self) -> typing.List[packaging.Package]:
+		"""
+		Fetches a list of the packages specified by Traffic Ops that should exist on this server.
+
+		:returns: all of the packages which this system must have, according to Traffic Ops.
+		:raises ConnectionError: if fetching the package list fails
+		"""
+		logging.info("Fetching this server's package list from Traffic Ops")
+
+		# Ah, read-only properties that gut functionality, my favorite.
+		tmp = self.api_base_url
+		self._api_base_url = urljoin(self._server_url, '/').rstrip('/') + '/'
+
+		packagesPath = '/'.join(("ort", self.hostname, "packages"))
+		for _ in range(self.retries):
+			try:
+				myPackages = self.get(packagesPath)
+				break
+			except (LoginError, OperationError, InvalidJSONError, RequestException) as e:
+				logging.debug("package fetch failure: %r", e, stack_info=True, exc_info=True)
+		else:
+			self._api_base_url = tmp
+			raise ConnectionError("Failed to get a response for packages")
+
+		self._api_base_url = tmp
+
+		logging.debug("Raw package response: %s", myPackages[1].text)
+
+		try:
+			return [packaging.Package(p) for p in myPackages[0]]
+		except ValueError:
+			raise ConnectionError
+
+	def getMyConfigFiles(self, conf:Configuration) -> typing.List[dict]:
+		"""
+		Fetches configuration files constructed by Traffic Ops for this server
+
+		.. note:: This function will set the :attr:`serverInfo` attribute of the object passed as
+			the ``conf`` argument to an instance of :class:`ServerInfo` with the provided
+			information.
+
+		:param conf: An object that represents the configuration of :program:`traffic_ops_ort`
+		:returns: A list of constructed config file objects
+		:raises ConnectionError: when something goes wrong communicating with Traffic Ops
+		"""
+		logging.info("Fetching list of configuration files from Traffic Ops")
+		for _ in range(self.retries):
+			try:
+				# The API function decorator confuses pylint into thinking this doesn't return
+				#pylint: disable=E1111
+				myFiles = self.get_server_config_files(host_name=self.hostname)
+				#pylint: enable=E1111
+				break
+			except (InvalidJSONError, LoginError, OperationError, RequestException) as e:
+				logging.debug("config file fetch failure: %r", e, exc_info=True, stack_info=True)
+		else:
+			raise ConnectionError("Failed to fetch configuration files from Traffic Ops")
+
+		logging.debug("Raw response from Traffic Ops: %s", myFiles[1].text)
+		myFiles = myFiles[0]
+
+		try:
+			conf.serverInfo = ServerInfo(myFiles.info)
+			# if there's a reverse proxy, switch urls.
+			if conf.serverInfo.toRevProxyUrl and not conf.rev_proxy_disable:
+				self._server_url = conf.serverInfo.toRevProxyUrl
+				self._api_base_url = urljoin(self._server_url, '/api/%s' % self.VERSION).rstrip('/') + '/'
+			return myFiles.configFiles
+		except (KeyError, AttributeError, ValueError) as e:
+			raise ConnectionError("Malformed response from Traffic Ops to update status request!") from e
+
+	def updateTrafficOps(self, mode:Configuration.Modes):
+		"""
+		Updates Traffic Ops's knowledge of this server's update status.
+
+		:param mode: The current run-mode of :program:`traffic_ops_ort`
+		"""
+		from .utils import getYesNoResponse as getYN
+
+		if mode is Configuration.Modes.INTERACTIVE and not getYN("Update Traffic Ops?", default='Y'):
+			logging.warning("Update will not be performed; you should clear updates manually")
+			return
+
+		logging.info("Updating Traffic Ops")
+
+		if mode is Configuration.Modes.REPORT:
+			return
+
+		payload = {"updated": False, "reval_updated": False}
+
+		for _ in range(self.retries):
+			try:
+				response = self._session.post('/'.join((self._server_url.rstrip('/'),
+				                                        "update",
+				                                        self.hostname)
+				                             ), data=payload)
+				break
+			except (LoginError, InvalidJSONError, OperationError, RequestException) as e:
+				logging.debug("TO update failure: %r", e, exc_info=True, stack_info=True)
+		else:
+			raise ConnectionError("Failed to update Traffic Ops - connection was lost")
+
+		if response.text:
+			logging.info("Traffic Ops response: %s", response.text)
+
+	def getMyChkconfig(self) -> typing.List[dict]:
+		"""
+		Fetches the 'chkconfig' for this server
+
+		:returns: An iterable list of 'chkconfig' entries
+		:raises ConnectionError: when something goes wrong communicating with Traffic Ops
+		"""
+
+
+		# Ah, read-only properties that gut functionality, my favorite.
+		tmp = self.api_base_url
+		self._api_base_url = urljoin(self._server_url, '/').rstrip('/') + '/'
+
+		uri = "ort/%s/chkconfig" % self.hostname
+		logging.info("Fetching chkconfig from %s", uri)
+
+		for _ in range(self.retries):
+			try:
+				r = self.get(uri)
+				break
+			except (InvalidJSONError, OperationError, LoginError, RequestException) as e:
+				logging.debug("chkconfig fetch failure: %r", e, exc_info=True, stack_info=True)
+		else:
+			self._api_base_url = tmp
+			raise ConnectionError("Failed to fetch 'chkconfig' from Traffic Ops - connection lost")
+
+		self._api_base_url = tmp
+
+		logging.debug("Raw response from Traffic Ops: %s", r[1].text)
+
+		return r[0]
+
+	def getMyUpdateStatus(self) -> dict:
+		"""
+		Gets the update status of a server.
+
+		:raises ConnectionError: if something goes wrong communicating with the server
+		:returns: An object representing the API's response
+		"""
+		logging.info("Fetching update status from Traffic Ops")
+		for _ in range(self.retries):
+			try:
+				# The API function decorator confuses pylint into thinking this doesn't return
+				#pylint: disable=E1111
+				r = self.get_server_update_status(server_name=self.hostname)
+				#pylint: enable=E1111
+				break
+			except (InvalidJSONError, LoginError, OperationError, RequestException) as e:
+				logging.debug("update status fetch failure: %r", e, exc_info=True, stack_info=True)
+		else:
+			raise ConnectionError("Failed to fetch update status - connection was lost")
+
+		logging.debug("Raw response from Traffic Ops: %s", r[1].text)
+
+		return r[0]
+
+	def getMyStatus(self) -> str:
+		"""
+		Fetches the status of this server as set in Traffic Ops
+
+		:raises ConnectionError: if fetching the status fails
+		:returns: the name of the status to which this server is set in the Traffic Ops configuration
+
+		"""
+		logging.info("Fetching server status from Traffic Ops")
+
+		for _ in range(self.retries):
+			try:
+				# The API function decorator confuses pylint into thinking this doesn't return
+				#pylint: disable=E1111
+				r = self.get_servers(query_params={"hostName": self.hostname})
+				#pylint: enable=E1111
+				break
+			except (InvalidJSONError, LoginError, OperationError,RequestException) as e:
+				logging.debug("status fetch failure: %r", e, exc_info=True, stack_info=True)
+		else:
+			raise ConnectionError("Failed to fetch server status - connection was lost")
+
+		logging.debug("Raw response from Traffic Ops: %s", r[1].text)
+
+		r = r[0][0]
+
+		try:
+			return r.status
+		except (IndexError, KeyError, AttributeError) as e:
+			raise ConnectionError("Malformed response from Traffic Ops to update status request!") from e
 
 #: Caches the names of statuses supported by Traffic Ops
 CACHED_STATUSES = []
@@ -94,13 +357,16 @@ class ServerInfo():
 		                       for a in dir(self)\
 		                       if not a.startswith('_')))
 
-	def __format__(self, fmt:str) -> str:
+	def sanitize(self, fmt:str, hostname:typing.Tuple[str, str]) -> str:
 		"""
-		Implements ``str.format(self)``
+		Sanitizes an input string with the passed hostname information
+
+		:param fmt: The string to be sanitized
+		:param hostname: A tuple containing the short and full hostnames of the server
+		:returns: The string ``fmt`` after sanitization
 		"""
-		from .configuration import HOSTNAME
-		fmt = fmt.replace("__HOSTNAME__", HOSTNAME[0])
-		fmt = fmt.replace("__FULL_HOSTNAME__", HOSTNAME[1])
+		fmt = fmt.replace("__HOSTNAME__", hostname[0])
+		fmt = fmt.replace("__FULL_HOSTNAME__", hostname[1])
 		fmt = fmt.replace("__RETURN__", '\n')
 		fmt = fmt.replace("__CACHE_IPV4__", self.serverIpv4)
 
@@ -108,253 +374,3 @@ class ServerInfo():
 		# if the tcp port is 80.
 		return fmt.replace("__SERVER_TCP_PORT__", str(self.serverTcpPort)\
 		                                          if self.serverTcpPort != 80 else "")
-
-def TOPost(uri:str, data:dict) -> str:
-	"""
-	POSTs the passed data in a request to the specified API endpoint
-
-	:param uri: The Traffic Ops URL-relative path to an API endpoint, e.g. if the intention is
-		to post to ``https://TO_URL:TO_PORT/api/1.3/users``, this should just be
-		``'api/1.3/users'``
-
-			.. note:: This function will ensure the proper concatenation of the Traffic Ops URL
-				to the request path; callers need not worry about whether the ``uri`` ought to
-				begin with a slash.
-
-	:returns: The Traffic Ops server's response to the POST request - possibly empty - as a UTF-8
-		string
-	:raises ConnectionError: when an error occurs trying to communicate with Traffic Ops
-	"""
-	from . import configuration as conf
-
-	uri = '/'.join((conf.TO_URL, uri.lstrip('/')))
-	logging.info("POSTing %r to %s", data, uri)
-
-	try:
-		resp = requests.post(uri, cookies=conf.getTOCookie(), verify=conf.VERIFY, data=data)
-	except (PermissionError, requests.exceptions.RequestException) as e:
-		raise ConnectionError from e
-
-	logging.debug("Raw response from Traffic Ops: %s\n%s\n%s", resp, resp.headers, resp.content)
-
-	return resp.text
-
-def getTOJSONResponse(uri:str) -> dict:
-	"""
-	A wrapper around :func:`traffic_ops_ort.utils.getJSONResponse` that handles cookies and
-	tacks on the top-level Traffic Ops URL.
-
-	:param uri: The Traffic Ops URL-relative path to a JSON API endpoint, e.g. if the intention
-		is to get ``https://TO_URL:TO_PORT/api/1.3/ping``, this should just be ``'api/1.3/ping'``
-
-			.. note:: This function will ensure the proper concatenation of the Traffic Ops URL
-				to the request path; callers need not worry about whether the ``uri`` ought to
-				begin with a slash.
-
-	:returns: The decoded JSON response as an object
-
-			.. note:: If the API response containes a 'response' object, this function will
-				only return that object. Also, if the API response contains an 'alerts' object,
-				they will be logged appropriately
-
-	:raises ConnectionError: when an error occurs trying to communicate with Traffic Ops
-	:raises ValueError: when the request completes successfully, but the response body
-		does not represent a JSON-encoded object.
-	"""
-	global API_LOGGERS
-	from . import configuration as conf, utils
-
-	uri = '/'.join((conf.TO_URL, uri.lstrip('/')))
-	logging.info("Fetching Traffic Ops API response: %s", uri)
-
-	if datetime.datetime.now().timestamp() >= conf.TO_COOKIE.expires:
-		try:
-			conf.getNewTOCookie()
-		except PermissionError as e:
-			raise ConnectionError from e
-
-	resp = utils.getJSONResponse(uri,
-	                             cookies = {conf.TO_COOKIE.name:conf.TO_COOKIE.value},
-	                             verify = conf.VERIFY)
-
-	if "response" in resp:
-		if "alerts" in resp:
-			for alert in resp["alerts"]:
-				if "level" in alert:
-					msg = alert["text"] if "text" in alert else "Unkown"
-					API_LOGGERS[alert["level"]](msg)
-				elif "text" in alert:
-					logging.warning("Traffic Ops API alert: %s", alert["text"])
-					logging.debug("Weird alert encountered: %r", alert)
-
-
-		return resp["response"]
-
-	return resp
-
-def getUpdateStatus(host:str) -> dict:
-	"""
-	Gets the update status of a server.
-
-	.. note:: If the global :data:`CACHED_UPDATE_STATUS` cached response is set, this function will
-		default to that object. If it is *not* set, then this function will set it.
-
-	:param host: The (short) hostname of the server to query
-	:raises ValueError: if ``host`` is not a :const:`str`
-	:raises PermissionError: if a new cookie is required, but fails to be aquired
-	:returns: An object representing the API's response
-	"""
-	global CACHED_UPDATE_STATUS
-
-	logging.info("Fetching update status for %s from Traffic Ops", host)
-	if not isinstance(host, str):
-		raise ValueError("First argument ('host') must be 'str', not '%s'" % type(host))
-
-	if host in CACHED_UPDATE_STATUS:
-		return CACHED_UPDATE_STATUS[host]
-
-	CACHED_UPDATE_STATUS[host] = getTOJSONResponse("api/1.3/servers/%s/update_status" % host)
-
-	return CACHED_UPDATE_STATUS[host]
-
-def getMyStatus() -> str:
-	"""
-	Fetches the status of this server as set in Traffic Ops
-
-	:raises ConnectionError: if fetching the status fails
-	:raises ValueError: if the :data:`traffic_ops_ort.configuration.HOSTNAME` is not properly set,
-		or a weird value is stored in the global :data:`CACHED_UPDATE_STATUS` response cache.
-	:returns: the name of the status to which this server is set in the Traffic Ops configuration
-
-	.. note:: If the global :data:`CACHED_UPDATE_STATUS` cached response is set, this function will
-		default to the status provided by that object.
-	"""
-	global CACHED_UPDATE_STATUS
-	from .configuration import HOSTNAME
-
-	try:
-		if HOSTNAME[0] in CACHED_UPDATE_STATUS:
-			myStatus = CACHED_UPDATE_STATUS[HOSTNAME[0]]
-			if "status" in CACHED_UPDATE_STATUS[HOSTNAME[0]]:
-				return CACHED_UPDATE_STATUS[HOSTNAME[0]]["status"]
-
-			logging.warning("CACHED_UPDATE_STATUS possibly set improperly")
-			logging.warning("clearing this server's cached entry!")
-			logging.debug("value was %r", myStatus)
-			del CACHED_UPDATE_STATUS[HOSTNAME[0]]
-
-	except (IndexError, KeyError) as e:
-		raise ValueError from e
-
-	myStatus = getUpdateStatus(HOSTNAME[0])
-
-	try:
-		return myStatus[0]["status"]
-	except (IndexError, KeyError) as e:
-		logging.error("Malformed response from Traffic Ops to update status request!")
-		raise ConnectionError from e
-
-def getStatuses() -> typing.Generator[str, None, None]:
-	"""
-	Yields a successive list of statuses supported by Traffic Ops.
-
-	.. note:: This is implemented by iterating the :data:`CACHED_STATUSES` global cache -
-		first populating it if it is empty - and so the validity of its outputs
-		depends on the validity of the data stored therein
-
-	:raises ValueError: if a response from the TO API is successful, but cannot be parsed as
-		JSON
-	:raises TypeError: if :data:`CACHED_STATUSES` is not iterable
-	:raises ConnectionError: if something goes wrong contacting the Traffic Ops API
-	:returns: an iterable generator that yields status names as strings
-	"""
-	global CACHED_STATUSES
-
-	logging.info("Retrieving statuses from Traffic Ops")
-
-	if CACHED_STATUSES:
-		logging.debug("Using cached statuses: %r", CACHED_STATUSES)
-		yield from CACHED_STATUSES
-	else:
-		statuses = getTOJSONResponse("api/1.3/statuses")
-		yield from statuses
-
-def getMyPackages() -> typing.List[packaging.Package]:
-	"""
-	Fetches a list of the packages specified by Traffic Ops that should exist on this server.
-
-	:returns: all of the packages which this system must have, according to Traffic Ops.
-	:raises ConnectionError: if fetching the package list fails
-	:raises ValueError: if the API endpoint returns a malformed response that can't be parsed
-	"""
-	from .configuration import HOSTNAME
-
-	logging.info("Fetching this server's package list from Traffic Ops")
-
-	myPackages=getTOJSONResponse('/'.join(("ort", HOSTNAME[0], "packages")))
-
-	logging.debug("Raw package response: %r", myPackages)
-
-	return [packaging.Package(p) for p in myPackages]
-
-def updateTrafficOps():
-	"""
-	Updates Traffic Ops's knowledge of this server's update status.
-	"""
-	from .configuration import MODE, Modes, HOSTNAME
-	from .utils import getYesNoResponse as getYN
-
-	if MODE is Modes.INTERACTIVE and not getYN("Update Traffic Ops?", default='Y'):
-		logging.warning("Update will not be performed; you should do this manually")
-		return
-
-	logging.info("Updating Traffic Ops")
-
-	if MODE is Modes.REPORT:
-		return
-
-	payload = {"updated": False, "reval_updated": False}
-	response = TOPost("/update/%s" % HOSTNAME[0], payload)
-
-	if response:
-		logging.info("Traffic Ops response: %s", response)
-
-def getMyConfigFiles() -> typing.List[dict]:
-	"""
-	Fetches configuration files constructed by Traffic Ops for this server
-
-	.. note:: This function will set the :data:`traffic_ops_ort.configuration.SERVER_INFO`
-		object to an instance of :class:`ServerInfo` with the provided information.
-
-	:returns: A list of constructed config file objects
-	:raises ConnectionError: when something goes wrong communicating with Traffic Ops
-	:raises ValueError: when a response was successfully obtained from the Traffic Ops API, but the
-		response could not successfully be parsed as JSON, or was missing information
-	"""
-	from . import configuration
-
-	uri = "/api/1.3/servers/%s/configfiles/ats" % configuration.HOSTNAME[0]
-
-	myFiles = getTOJSONResponse(uri)
-
-	try:
-		configuration.SERVER_INFO = ServerInfo(myFiles["info"])
-		return myFiles["configFiles"]
-	except KeyError as e:
-		raise ValueError from e
-
-def getMyChkconfig() -> typing.List[dict]:
-	"""
-	Fetches the 'chkconfig' for this server
-
-	:returns: An iterable list of 'chkconfig' entries
-	:raises ConnectionError: when something goes wrong communicating with Traffic Ops
-	:raises ValueError: when a response was successfully obtained from the Traffic Ops API, but the
-		response could not successfully be parsed as JSON, or was missing information
-	"""
-	from . import configuration
-
-	uri = "/ort/%s/chkconfig" % configuration.HOSTNAME[0]
-	logging.info("Fetching chkconfig from %s", uri)
-
-	return getTOJSONResponse(uri)

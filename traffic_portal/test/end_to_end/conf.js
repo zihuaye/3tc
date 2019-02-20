@@ -18,14 +18,34 @@
  */
 
 exports.config = {
-    framework: 'jasmine',
-    seleniumAddress: 'http://localhost:4444/wd/hub',
-    specs: ['login_spec.js'],
-    baseUrl: 'https://localhost:8443',
+	framework: 'jasmine',
+	seleniumAddress: 'http://localhost:4444/wd/hub',
+	baseUrl: 'https://localhost:4443',
+	getPageTimeout: 30000,
 
-    params: {
-        adminUser: 'admin',
-        adminPassword: 'password'
-   }
-}
+	capabilities: {
+		'browserName': 'chrome'
+	},
+	params: {
+		adminUser: 'admin',
+		adminPassword: 'twelve'
+	},
+	jasmineNodeOpts: {defaultTimeoutInterval: 600000},
 
+	suites: {
+		loginTests: 'login/login-spec.js',
+		allTests: [
+			'login/login-spec.js',
+			'CDNs/cdns-spec.js',
+			'DeliveryServices/delivery-services-spec.js',
+			'Servers/servers-spec.js'],
+		cdnTests: ['login/login-spec.js',
+			'CDNs/cdns-spec.js'],
+		deliveryServiceTests: [
+			'login/login-spec.js',
+			'DeliveryServices/delivery-services-spec.js'],
+		serverTests: [
+			'login/login-spec.js',
+			'Servers/servers-spec.js'],
+	}
+};

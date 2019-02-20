@@ -20,11 +20,12 @@ package config
  */
 
 import (
-	"encoding/json"
 	"io/ioutil"
 	"time"
 
 	"github.com/apache/trafficcontrol/lib/go-log"
+
+	"github.com/json-iterator/go"
 )
 
 // LogLocation is a location to log to. This may be stdout, stderr, null (/dev/null), or a valid file path.
@@ -39,6 +40,10 @@ const (
 	LogLocationNull = "null"
 	//StaticFileDir is the directory that contains static html and js files.
 	StaticFileDir = "/opt/traffic_monitor/static/"
+	//CrConfigBackupFile is the default file name to store the last crconfig
+	CRConfigBackupFile = "/opt/traffic_monitor/crconfig.backup"
+	//TmConfigBackupFile is the default file name to store the last tmconfig
+	TMConfigBackupFile = "/opt/traffic_monitor/tmconfig.backup"
 )
 
 // Config is the configuration for the application. It includes myriad data, such as polling intervals and log locations.
@@ -54,6 +59,7 @@ type Config struct {
 	MaxHealthHistory             uint64        `json:"max_health_history"`
 	HealthFlushInterval          time.Duration `json:"-"`
 	StatFlushInterval            time.Duration `json:"-"`
+	StatBufferInterval           time.Duration `json:"-"`
 	LogLocationError             string        `json:"log_location_error"`
 	LogLocationWarning           string        `json:"log_location_warning"`
 	LogLocationInfo              string        `json:"log_location_info"`
@@ -64,6 +70,11 @@ type Config struct {
 	HealthToStatRatio            uint64        `json:"health_to_stat_ratio"`
 	StaticFileDir                string        `json:"static_file_dir"`
 	CRConfigHistoryCount         uint64        `json:"crconfig_history_count"`
+	TrafficOpsMinRetryInterval   time.Duration `json:"-"`
+	TrafficOpsMaxRetryInterval   time.Duration `json:"-"`
+	CRConfigBackupFile           string        `json:"crconfig_backup_file"`
+	TMConfigBackupFile           string        `json:"tmconfig_backup_file"`
+	TrafficOpsDiskRetryMax       uint64        `json:"-"`
 }
 
 func (c Config) ErrorLog() log.LogLocation   { return log.LogLocation(c.LogLocationError) }
@@ -85,6 +96,7 @@ var DefaultConfig = Config{
 	MaxHealthHistory:             5,
 	HealthFlushInterval:          200 * time.Millisecond,
 	StatFlushInterval:            200 * time.Millisecond,
+	StatBufferInterval:           0,
 	LogLocationError:             LogLocationStderr,
 	LogLocationWarning:           LogLocationStdout,
 	LogLocationInfo:              LogLocationNull,
@@ -95,11 +107,17 @@ var DefaultConfig = Config{
 	HealthToStatRatio:            4,
 	StaticFileDir:                StaticFileDir,
 	CRConfigHistoryCount:         20000,
+	TrafficOpsMinRetryInterval:   100 * time.Millisecond,
+	TrafficOpsMaxRetryInterval:   60000 * time.Millisecond,
+	CRConfigBackupFile:           CRConfigBackupFile,
+	TMConfigBackupFile:           TMConfigBackupFile,
+	TrafficOpsDiskRetryMax:       2,
 }
 
 // MarshalJSON marshals custom millisecond durations. Aliasing inspired by http://choly.ca/post/go-json-marshalling/
 func (c *Config) MarshalJSON() ([]byte, error) {
 	type Alias Config
+	json := jsoniter.ConfigFastest // TODO make configurable?
 	return json.Marshal(&struct {
 		CacheHealthPollingIntervalMs   uint64 `json:"cache_health_polling_interval_ms"`
 		CacheStatPollingIntervalMs     uint64 `json:"cache_stat_polling_interval_ms"`
@@ -109,6 +127,7 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 		PeerOptimistic                 bool   `json:"peer_optimistic"`
 		HealthFlushIntervalMs          uint64 `json:"health_flush_interval_ms"`
 		StatFlushIntervalMs            uint64 `json:"stat_flush_interval_ms"`
+		StatBufferIntervalMs           uint64 `json:"stat_buffer_interval_ms"`
 		ServeReadTimeoutMs             uint64 `json:"serve_read_timeout_ms"`
 		ServeWriteTimeoutMs            uint64 `json:"serve_write_timeout_ms"`
 		*Alias
@@ -121,6 +140,7 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 		PeerOptimistic:                 bool(true),
 		HealthFlushIntervalMs:          uint64(c.HealthFlushInterval / time.Millisecond),
 		StatFlushIntervalMs:            uint64(c.StatFlushInterval / time.Millisecond),
+		StatBufferIntervalMs:           uint64(c.StatBufferInterval / time.Millisecond),
 		Alias:                          (*Alias)(c),
 	})
 }
@@ -137,12 +157,19 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		PeerOptimistic                 *bool   `json:"peer_optimistic"`
 		HealthFlushIntervalMs          *uint64 `json:"health_flush_interval_ms"`
 		StatFlushIntervalMs            *uint64 `json:"stat_flush_interval_ms"`
+		StatBufferIntervalMs           *uint64 `json:"stat_buffer_interval_ms"`
 		ServeReadTimeoutMs             *uint64 `json:"serve_read_timeout_ms"`
 		ServeWriteTimeoutMs            *uint64 `json:"serve_write_timeout_ms"`
+		TrafficOpsMinRetryIntervalMs   *uint64 `json:"traffic_ops_min_retry_interval_ms"`
+		TrafficOpsMaxRetryIntervalMs   *uint64 `json:"traffic_ops_max_retry_interval_ms"`
+		TrafficOpsDiskRetryMax         *uint64 `json:"traffic_ops_disk_retry_max"`
+		CRConfigBackupFile             *string `json:"crconfig_backup_file"`
+		TMConfigBackupFile             *string `json:"tmconfig_backup_file"`
 		*Alias
 	}{
 		Alias: (*Alias)(c),
 	}
+	json := jsoniter.ConfigFastest // TODO make configurable?
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
@@ -168,6 +195,9 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	if aux.StatFlushIntervalMs != nil {
 		c.StatFlushInterval = time.Duration(*aux.StatFlushIntervalMs) * time.Millisecond
 	}
+	if aux.StatBufferIntervalMs != nil {
+		c.StatBufferInterval = time.Duration(*aux.StatBufferIntervalMs) * time.Millisecond
+	}
 	if aux.ServeReadTimeoutMs != nil {
 		c.ServeReadTimeout = time.Duration(*aux.ServeReadTimeoutMs) * time.Millisecond
 	}
@@ -176,6 +206,21 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	}
 	if aux.PeerOptimistic != nil {
 		c.PeerOptimistic = *aux.PeerOptimistic
+	}
+	if aux.TrafficOpsMinRetryIntervalMs != nil {
+		c.TrafficOpsMinRetryInterval = time.Duration(*aux.TrafficOpsMinRetryIntervalMs) * time.Millisecond
+	}
+	if aux.TrafficOpsMaxRetryIntervalMs != nil {
+		c.TrafficOpsMaxRetryInterval = time.Duration(*aux.TrafficOpsMaxRetryIntervalMs) * time.Millisecond
+	}
+	if aux.TrafficOpsDiskRetryMax != nil {
+		c.TrafficOpsDiskRetryMax = *aux.TrafficOpsDiskRetryMax
+	}
+	if aux.CRConfigBackupFile != nil {
+		c.CRConfigBackupFile = *aux.CRConfigBackupFile
+	}
+	if aux.TMConfigBackupFile != nil {
+		c.TMConfigBackupFile = *aux.TMConfigBackupFile
 	}
 	return nil
 }
@@ -196,6 +241,7 @@ func Load(fileName string) (Config, error) {
 // LoadBytes loads the given file bytes.
 func LoadBytes(bytes []byte) (Config, error) {
 	cfg := DefaultConfig
+	json := jsoniter.ConfigFastest // TODO make configurable?
 	err := json.Unmarshal(bytes, &cfg)
 	return cfg, err
 }

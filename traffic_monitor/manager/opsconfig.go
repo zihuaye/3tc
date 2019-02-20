@@ -20,14 +20,18 @@ package manager
  */
 
 import (
-	"encoding/json"
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
+	"net"
+	"net/http"
+	"net/http/cookiejar"
 	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/apache/trafficcontrol/lib/go-log"
+	"github.com/apache/trafficcontrol/lib/go-util"
 	"github.com/apache/trafficcontrol/traffic_monitor/config"
 	"github.com/apache/trafficcontrol/traffic_monitor/datareq"
 	"github.com/apache/trafficcontrol/traffic_monitor/handler"
@@ -38,6 +42,8 @@ import (
 	"github.com/apache/trafficcontrol/traffic_monitor/todata"
 	"github.com/apache/trafficcontrol/traffic_monitor/towrap"
 	to "github.com/apache/trafficcontrol/traffic_ops/client"
+
+	"github.com/json-iterator/go"
 )
 
 // StartOpsConfigManager starts the ops config manager goroutine, returning the (threadsafe) variables which it sets.
@@ -76,6 +82,7 @@ func StartOpsConfigManager(
 	}
 
 	httpServer := srvhttp.Server{}
+	httpsServer := srvhttp.Server{}
 	opsConfig := threadsafe.NewOpsConfig()
 
 	// TODO remove change subscribers, give Threadsafes directly to the things that need them. If they only set vars, and don't actually do work on change.
@@ -86,6 +93,7 @@ func StartOpsConfigManager(
 		}
 
 		newOpsConfig := handler.OpsConfig{}
+		json := jsoniter.ConfigFastest // TODO make configurable?
 		if err = json.Unmarshal(bytes, &newOpsConfig); err != nil {
 			handleErr(fmt.Errorf("Could not unmarshal Ops Config JSON: %s\n", err))
 			return
@@ -123,22 +131,78 @@ func StartOpsConfigManager(
 			unpolledCaches,
 			monitorConfig,
 		)
-		err = httpServer.Run(endpoints, listenAddress, cfg.ServeReadTimeout, cfg.ServeWriteTimeout, cfg.StaticFileDir)
-		if err != nil {
-			handleErr(fmt.Errorf("MonitorConfigPoller: error creating HTTP server: %s\n", err))
-			return
+
+		// If the HTTPS Listener is defined in the traffic_ops.cfg file then it creates the HTTPS endpoint and the corresponding HTTP endpoint as a redirect
+		if newOpsConfig.HttpsListener != "" {
+			httpsListenAddress := newOpsConfig.HttpsListener
+			err = httpServer.RunHTTPSRedirect(listenAddress, httpsListenAddress, cfg.ServeReadTimeout, cfg.ServeWriteTimeout, cfg.StaticFileDir)
+			if err != nil {
+				handleErr(fmt.Errorf("MonitorConfigPoller: error creating HTTP server: %s\n", err))
+				return
+			}
+			err = httpsServer.Run(endpoints, httpsListenAddress, cfg.ServeReadTimeout, cfg.ServeWriteTimeout, cfg.StaticFileDir, true, newOpsConfig.CertFile, newOpsConfig.KeyFile)
+			if err != nil {
+				handleErr(fmt.Errorf("MonitorConfigPoller: error creating HTTPS server: %s\n", err))
+				return
+			}
+		} else {
+			err = httpServer.Run(endpoints, listenAddress, cfg.ServeReadTimeout, cfg.ServeWriteTimeout, cfg.StaticFileDir, false, "", "")
+			if err != nil {
+				handleErr(fmt.Errorf("MonitorConfigPoller: error creating HTTP server: %s\n", err))
+				return
+			}
 		}
 
 		// TODO config? parameter?
 		useCache := false
 		trafficOpsRequestTimeout := time.Second * time.Duration(10)
+		var realToSession *to.Session
+		var toAddr net.Addr
+		var toLoginCount uint64
 
-		realToSession, toAddr, err := to.LoginWithAgent(newOpsConfig.Url, newOpsConfig.Username, newOpsConfig.Password, newOpsConfig.Insecure, staticAppData.UserAgent, useCache, trafficOpsRequestTimeout)
+		// fixed an issue here where traffic_monitor loops forever, doing nothing useful if traffic_ops is down,
+		// and would never logging in again.  since traffic_monitor  is just starting up here, keep retrying until traffic_ops is reachable and a session can be established.
+		backoff, err := util.NewBackoff(cfg.TrafficOpsMinRetryInterval, cfg.TrafficOpsMaxRetryInterval, util.DefaultFactor)
 		if err != nil {
-			handleErr(fmt.Errorf("MonitorConfigPoller: error instantiating Session with traffic_ops (%v): %s\n", toAddr, err))
-			return
+			log.Errorf("possible invalid backoff arguments, will use a fixed sleep interval: %v, will use a fallback duration: %v", err, util.ConstantBackoffDuration)
+			// use a fallback constant duration.
+			backoff = util.NewConstantBackoff(util.ConstantBackoffDuration)
 		}
-		toSession.Set(realToSession)
+		for {
+			realToSession, toAddr, err = to.LoginWithAgent(newOpsConfig.Url, newOpsConfig.Username, newOpsConfig.Password, newOpsConfig.Insecure, staticAppData.UserAgent, useCache, trafficOpsRequestTimeout)
+			if err != nil {
+				handleErr(fmt.Errorf("MonitorConfigPoller: error instantiating Session with traffic_ops (%v): %s\n", toAddr, err))
+				duration := backoff.BackoffDuration()
+				log.Errorf("retrying in %v\n", duration)
+				time.Sleep(duration)
+
+				if toSession.BackupFileExists() && (toLoginCount >= cfg.TrafficOpsDiskRetryMax) {
+					jar, err := cookiejar.New(nil)
+					if err != nil {
+						log.Errorf("Err getting cookiejar")
+						continue
+					}
+
+					realToSession = to.NewSession(newOpsConfig.Username, newOpsConfig.Password, newOpsConfig.Url, staticAppData.UserAgent, &http.Client{
+						Timeout: trafficOpsRequestTimeout,
+						Transport: &http.Transport{
+							TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+						},
+						Jar: jar,
+					}, useCache)
+					toSession.Set(realToSession)
+					// At this point we have a valid 'dummy' session. This will allow us to pull from disk but will also retry when TO comes up
+					log.Errorf("error instantiating Session with traffic_ops, backup disk files exist, creating empty traffic_ops session to read")
+					break
+				}
+
+				toLoginCount++
+				continue
+			} else {
+				toSession.Set(realToSession)
+				break
+			}
+		}
 
 		if cdn, err := getMonitorCDN(realToSession, staticAppData.Hostname); err != nil {
 			handleErr(fmt.Errorf("getting CDN name from Traffic Ops, using config CDN '%s': %s\n", newOpsConfig.CdnName, err))
@@ -149,9 +213,18 @@ func StartOpsConfigManager(
 			newOpsConfig.CdnName = cdn
 		}
 
-		if err := toData.Fetch(toSession, newOpsConfig.CdnName); err != nil {
-			handleErr(fmt.Errorf("Error getting Traffic Ops data: %v\n", err))
-			return
+		// fixed an issue when traffic_monitor receives corrupt data, CRConfig, from traffic_ops.
+		// Will loop and retry until a good CRConfig is received from traffic_ops
+		backoff.Reset()
+		for {
+			if err := toData.Fetch(toSession, newOpsConfig.CdnName); err != nil {
+				handleErr(fmt.Errorf("Error getting Traffic Ops data: %v\n", err))
+				duration := backoff.BackoffDuration()
+				log.Errorf("retrying in %v\n", duration)
+				time.Sleep(duration)
+				continue
+			}
+			break
 		}
 
 		// These must be in a goroutine, because the monitorConfigPoller tick sends to a channel this select listens for. Thus, if we block on sends to the monitorConfigPoller, we have a livelock race condition.

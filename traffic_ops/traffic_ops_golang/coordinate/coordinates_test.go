@@ -31,7 +31,6 @@ import (
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/api"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/test"
 	"github.com/jmoiron/sqlx"
-
 	sqlmock "gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
 
@@ -59,6 +58,7 @@ func getTestCoordinates() []tc.Coordinate {
 }
 
 func TestReadCoordinates(t *testing.T) {
+
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
@@ -86,7 +86,11 @@ func TestReadCoordinates(t *testing.T) {
 	mock.ExpectCommit()
 
 	reqInfo := api.APIInfo{Tx: db.MustBegin(), Params: map[string]string{"id": "1"}}
-	coordinates, userErr, sysErr, _ := GetTypeSingleton()(&reqInfo).Read()
+	obj := TOCoordinate{
+		api.APIInfoImpl{&reqInfo},
+		tc.CoordinateNullable{},
+	}
+	coordinates, userErr, sysErr, _ := obj.Read()
 	if userErr != nil || sysErr != nil {
 		t.Errorf("Read expected: no errors, actual: %v %v", userErr, sysErr)
 	}

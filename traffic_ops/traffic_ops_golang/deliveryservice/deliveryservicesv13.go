@@ -45,12 +45,15 @@ import (
 //we need a type alias to define functions on
 
 type TODeliveryServiceV13 struct {
-	ReqInfo *api.APIInfo
+	api.APIInfoImpl
 	tc.DeliveryServiceNullable
 }
 
 func (ds *TODeliveryServiceV13) V12() *TODeliveryServiceV12 {
-	return &TODeliveryServiceV12{ReqInfo: ds.ReqInfo, DeliveryServiceNullableV12: ds.DeliveryServiceNullableV12}
+	v12 := &TODeliveryServiceV12{}
+	v12.DeliveryServiceNullableV12 = ds.DeliveryServiceNullableV12
+	v12.SetInfo(ds.ReqInfo)
+	return v12
 }
 
 func (ds TODeliveryServiceV13) MarshalJSON() ([]byte, error) {
@@ -61,13 +64,6 @@ func (ds *TODeliveryServiceV13) UnmarshalJSON(data []byte) error {
 }
 
 func (ds *TODeliveryServiceV13) APIInfo() *api.APIInfo { return ds.ReqInfo }
-
-func GetTypeV13Factory() api.CRUDFactory {
-	return func(reqInfo *api.APIInfo) api.CRUDer {
-		toReturn := TODeliveryServiceV13{reqInfo, tc.DeliveryServiceNullable{}}
-		return &toReturn
-	}
-}
 
 func (ds TODeliveryServiceV13) GetKeyFieldsInfo() []api.KeyFieldInfo {
 	return ds.V12().GetKeyFieldsInfo()
@@ -201,18 +197,10 @@ func create(tx *sql.Tx, cfg config.Config, user *auth.CurrentUser, ds tc.Deliver
 
 	ds.ExampleURLs = MakeExampleURLs(ds.Protocol, *ds.Type, *ds.RoutingName, *ds.MatchList, cdnDomain)
 
-	if err := ensureHeaderRewriteParams(tx, *ds.ID, *ds.XMLID, ds.EdgeHeaderRewrite, edgeTier, *ds.Type); err != nil {
-		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("creating edge header rewrite parameters: " + err.Error())
+	if err := EnsureParams(tx, *ds.ID, *ds.XMLID, ds.EdgeHeaderRewrite, ds.MidHeaderRewrite, ds.RegexRemap, ds.CacheURL, ds.SigningAlgorithm, dsType); err != nil {
+		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("ensuring ds parameters:: " + err.Error())
 	}
-	if err := ensureHeaderRewriteParams(tx, *ds.ID, *ds.XMLID, ds.MidHeaderRewrite, midTier, *ds.Type); err != nil {
-		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("creating mid header rewrite parameters: " + err.Error())
-	}
-	if err := ensureRegexRemapParams(tx, *ds.ID, *ds.XMLID, ds.RegexRemap); err != nil {
-		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("creating regex remap parameters: " + err.Error())
-	}
-	if err := ensureCacheURLParams(tx, *ds.ID, *ds.XMLID, ds.CacheURL); err != nil {
-		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("creating cache url parameters: " + err.Error())
-	}
+
 	if dnssecEnabled {
 		if err := PutDNSSecKeys(tx, &cfg, *ds.XMLID, cdnName, ds.ExampleURLs); err != nil {
 			return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("creating DNSSEC keys: " + err.Error())
@@ -495,15 +483,6 @@ func update(tx *sql.Tx, cfg config.Config, user *auth.CurrentUser, ds *tc.Delive
 		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("getting CDN domain after update: " + err.Error())
 	}
 
-	// newHostName will be used to determine if SSL Keys need updating - this will be empty if the DS doesn't have SSL keys, because DS types without SSL keys may not have regexes, and thus will fail to get a host name.
-	newHostName := ""
-	if dsType.HasSSLKeys() {
-		newHostName, err = getHostName(ds.Protocol, *ds.Type, *ds.RoutingName, *ds.MatchList, cdnDomain)
-		if err != nil {
-			return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("getting hostname after update: " + err.Error())
-		}
-	}
-
 	matchLists, err := GetDeliveryServicesMatchLists([]string{*ds.XMLID}, tx)
 	if err != nil {
 		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("getting matchlists after update: " + err.Error())
@@ -514,23 +493,23 @@ func update(tx *sql.Tx, cfg config.Config, user *auth.CurrentUser, ds *tc.Delive
 		ds.MatchList = &ml
 	}
 
+	// newHostName will be used to determine if SSL Keys need updating - this will be empty if the DS doesn't have SSL keys, because DS types without SSL keys may not have regexes, and thus will fail to get a host name.
+	newHostName := ""
+	if dsType.HasSSLKeys() {
+		newHostName, err = getHostName(ds.Protocol, *ds.Type, *ds.RoutingName, *ds.MatchList, cdnDomain)
+		if err != nil {
+			return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("getting hostname after update: " + err.Error())
+		}
+	}
+
 	if newDSType.HasSSLKeys() && oldHostName != newHostName {
 		if err := updateSSLKeys(ds, newHostName, tx, cfg); err != nil {
 			return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("updating delivery service " + *ds.XMLID + ": updating SSL keys: " + err.Error())
 		}
 	}
 
-	if err := ensureHeaderRewriteParams(tx, *ds.ID, *ds.XMLID, ds.EdgeHeaderRewrite, edgeTier, *ds.Type); err != nil {
-		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("creating edge header rewrite parameters: " + err.Error())
-	}
-	if err := ensureHeaderRewriteParams(tx, *ds.ID, *ds.XMLID, ds.MidHeaderRewrite, midTier, *ds.Type); err != nil {
-		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("creating mid header rewrite parameters: " + err.Error())
-	}
-	if err := ensureRegexRemapParams(tx, *ds.ID, *ds.XMLID, ds.RegexRemap); err != nil {
-		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("creating mid regex remap parameters: " + err.Error())
-	}
-	if err := ensureCacheURLParams(tx, *ds.ID, *ds.XMLID, ds.CacheURL); err != nil {
-		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("creating mid cacheurl parameters: " + err.Error())
+	if err := EnsureParams(tx, *ds.ID, *ds.XMLID, ds.EdgeHeaderRewrite, ds.MidHeaderRewrite, ds.RegexRemap, ds.CacheURL, ds.SigningAlgorithm, dsType); err != nil {
+		return tc.DeliveryServiceNullable{}, http.StatusInternalServerError, nil, errors.New("ensuring ds parameters:: " + err.Error())
 	}
 
 	if err := updatePrimaryOrigin(tx, user, *ds); err != nil {
@@ -560,6 +539,10 @@ func readGetDeliveryServices(params map[string]string, tx *sqlx.Tx, user *auth.C
 	if strings.HasSuffix(params["id"], ".json") {
 		params["id"] = params["id"][:len(params["id"])-len(".json")]
 	}
+	if _, ok := params["orderby"]; !ok {
+		params["orderby"] = "xml_id"
+	}
+
 	// Query Parameters to Database Query column mappings
 	// see the fields mapped in the SQL query
 	queryParamsToSQLCols := map[string]dbhelpers.WhereColumnInfo{
@@ -572,10 +555,6 @@ func readGetDeliveryServices(params map[string]string, tx *sqlx.Tx, user *auth.C
 		"logsEnabled":      dbhelpers.WhereColumnInfo{"ds.logs_enabled", api.IsBool},
 		"tenant":           dbhelpers.WhereColumnInfo{"ds.tenant_id", api.IsInt},
 		"signingAlgorithm": dbhelpers.WhereColumnInfo{"ds.signing_algorithm", nil},
-	}
-
-	if _, ok := params["orderby"]; !ok {
-		params["orderby"] = "xml_id"
 	}
 
 	where, orderBy, queryValues, errs := dbhelpers.BuildWhereAndOrderBy(params, queryParamsToSQLCols)
@@ -603,6 +582,10 @@ func readGetDeliveryServices(params map[string]string, tx *sqlx.Tx, user *auth.C
 	log.Debugln("generated deliveryServices query: " + query)
 	log.Debugf("executing with values: %++v\n", queryValues)
 
+	return GetDeliveryServices(query, queryValues, tx)
+}
+
+func GetDeliveryServices(query string, queryValues map[string]interface{}, tx *sqlx.Tx) ([]tc.DeliveryServiceNullable, []error, tc.ApiErrorType) {
 	rows, err := tx.NamedQuery(query, queryValues)
 	if err != nil {
 		return nil, []error{fmt.Errorf("querying: %v", err)}, tc.SystemError
@@ -622,7 +605,7 @@ func readGetDeliveryServices(params map[string]string, tx *sqlx.Tx, user *auth.C
 		if ds.DeepCachingType != nil {
 			*ds.DeepCachingType = tc.DeepCachingTypeFromString(string(*ds.DeepCachingType))
 		}
-		ds.Signed = ds.SigningAlgorithm != nil && *ds.SigningAlgorithm == "url_sig"
+		ds.Signed = ds.SigningAlgorithm != nil && *ds.SigningAlgorithm == tc.SigningAlgorithmURLSig
 		dses = append(dses, ds)
 	}
 
@@ -652,7 +635,7 @@ func updateSSLKeys(ds *tc.DeliveryServiceNullable, hostName string, tx *sql.Tx, 
 	if ds.XMLID == nil {
 		return errors.New("delivery services has no XMLID!")
 	}
-	key, ok, err := riaksvc.GetDeliveryServiceSSLKeysObj(*ds.XMLID, riaksvc.DSSSLKeyVersionLatest, tx, cfg.RiakAuthOptions)
+	key, ok, err := riaksvc.GetDeliveryServiceSSLKeysObj(*ds.XMLID, riaksvc.DSSSLKeyVersionLatest, tx, cfg.RiakAuthOptions, cfg.RiakPort)
 	if err != nil {
 		return errors.New("getting SSL key: " + err.Error())
 	}
@@ -661,7 +644,7 @@ func updateSSLKeys(ds *tc.DeliveryServiceNullable, hostName string, tx *sql.Tx, 
 	}
 	key.DeliveryService = *ds.XMLID
 	key.Hostname = hostName
-	if err := riaksvc.PutDeliveryServiceSSLKeysObj(key, tx, cfg.RiakAuthOptions); err != nil {
+	if err := riaksvc.PutDeliveryServiceSSLKeysObj(key, tx, cfg.RiakAuthOptions, cfg.RiakPort); err != nil {
 		return errors.New("putting updated SSL key: " + err.Error())
 	}
 	return nil
@@ -769,6 +752,7 @@ JOIN deliveryservice_regex as dsr ON dsr.regex = r.id
 JOIN deliveryservice as ds on ds.id = dsr.deliveryservice
 JOIN type as t ON r.type = t.id
 WHERE ds.xml_id = ANY($1)
+ORDER BY dsr.set_number
 `
 	rows, err := tx.Query(q, pq.Array(dses))
 	if err != nil {
@@ -801,6 +785,27 @@ const (
 	edgeTier
 )
 
+// EnsureParams ensures the given delivery service's necessary parameters exist on profiles of servers assigned to the delivery service.
+// Note the edgeHeaderRewrite, midHeaderRewrite, regexRemap, and cacheURL may be nil, if the delivery service does not have those values.
+func EnsureParams(tx *sql.Tx, dsID int, xmlID string, edgeHeaderRewrite *string, midHeaderRewrite *string, regexRemap *string, cacheURL *string, signingAlgorithm *string, dsType tc.DSType) error {
+	if err := ensureHeaderRewriteParams(tx, dsID, xmlID, edgeHeaderRewrite, edgeTier, dsType); err != nil {
+		return errors.New("creating edge header rewrite parameters: " + err.Error())
+	}
+	if err := ensureHeaderRewriteParams(tx, dsID, xmlID, midHeaderRewrite, midTier, dsType); err != nil {
+		return errors.New("creating mid header rewrite parameters: " + err.Error())
+	}
+	if err := ensureRegexRemapParams(tx, dsID, xmlID, regexRemap); err != nil {
+		return errors.New("creating mid regex remap parameters: " + err.Error())
+	}
+	if err := ensureCacheURLParams(tx, dsID, xmlID, cacheURL); err != nil {
+		return errors.New("creating mid cacheurl parameters: " + err.Error())
+	}
+	if err := ensureURLSigParams(tx, dsID, xmlID, signingAlgorithm); err != nil {
+		return errors.New("creating urlsig parameters: " + err.Error())
+	}
+	return nil
+}
+
 func ensureHeaderRewriteParams(tx *sql.Tx, dsID int, xmlID string, hdrRW *string, tier tierType, dsType tc.DSType) error {
 	if tier == midTier && dsType.IsLive() && !dsType.IsNational() {
 		return nil // live local DSes don't get remap rules
@@ -830,6 +835,18 @@ ON CONFLICT DO NOTHING
 		return fmt.Errorf("parameter query to insert profile_parameters query '"+profileParameterQuery+"' location parameter ID '%v' delivery service ID '%v': %v", locationParamID, dsID, err)
 	}
 	return nil
+}
+
+func ensureURLSigParams(tx *sql.Tx, dsID int, xmlID string, signingAlgorithm *string) error {
+	configFile := "url_sig_" + xmlID + ".config"
+	if signingAlgorithm == nil || *signingAlgorithm != tc.SigningAlgorithmURLSig {
+		return deleteLocationParam(tx, configFile)
+	}
+	locationParamID, err := ensureLocation(tx, configFile)
+	if err != nil {
+		return err
+	}
+	return createDSLocationProfileParams(tx, locationParamID, dsID)
 }
 
 func ensureRegexRemapParams(tx *sql.Tx, dsID int, xmlID string, regexRemap *string) error {
@@ -921,6 +938,11 @@ func deleteLocationParam(tx *sql.Tx, configFile string) error {
 		return errors.New("executing parameter profile_parameter delete: " + err.Error())
 	}
 	return nil
+}
+
+// export the selectQuery for the 'servers' package.
+func GetDSSelectQuery() string {
+	return selectQuery()
 }
 
 func selectQuery() string {

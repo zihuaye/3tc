@@ -24,6 +24,9 @@ support a strict set of distributions with well-known package managers.
 import logging
 import subprocess
 
+from .configuration import Configuration
+from .utils import getYesNoResponse as getYN
+
 class _MetaPackage(type):
 	"""
 	This factory is responsible for constructing a :class:`Package` class which properly
@@ -39,12 +42,24 @@ class _MetaPackage(type):
 
 		if DISTRO in {'fedora', 'centos', 'rhel'}:
 			concat = '-'
-			pack.checkInstallList = lambda x: [p for p in subprocess.Popen(["/bin/rpm", "-q", x.name], stdout=subprocess.PIPE).communicate()[0].decode().splitlines() if not p.endswith("is not installed")]
+			pack.checkInstallList = lambda x: [ p
+			                                    for p in
+			                                    subprocess.Popen(["/bin/rpm", "-q", x.name],
+			                                                     stdout=subprocess.PIPE)
+			                                              .communicate()[0].decode().splitlines()
+			                                    if not p.endswith("is not installed")]
 			pack.installArgs = ["/bin/yum", "install", "-y"]
 			pack.uninstallArgs = ["/bin/yum", "remove", "-y"]
+
 		elif DISTRO in {'ubuntu', 'linuxmint', 'debian'}:
 			concat = '='
-			pack.checkInstallList = lambda x: ["{1}={2}".format(*p.split()) for p in subprocess.Popen(["/usr/bin/dpkg", "-l", x.name], stdout=subprocess.PIPE).communicate()[0].decode().splitlines()[5:] if p]
+			pack.checkInstallList = lambda x: [ "{1}={2}".format(*p.split())
+			                                    for p in
+			                                    subprocess.Popen(["/usr/bin/dpkg", "-l", x.name],
+			                                                     stdout=subprocess.PIPE)
+			                                    .communicate()[0].decode().splitlines()[5:]
+			                                    if p ]
+
 			pack.installArgs = ["/usr/bin/apt-get", "install", "-y"]
 			pack.uninstallArgs = ["/usr/bin/apt-get", "purge", "-y"]
 
@@ -87,6 +102,12 @@ class Package(metaclass=_MetaPackage):
 		self.name = pkg["name"]
 		self.version = pkg["version"] if "version" in pkg else ""
 
+		# These are defined in the metaclass based on the host system's Linux distribution, but are
+		# specified here for the benefit of static analysis tools
+		self.checkInstallList = getattr(self, 'checkInstallList', lambda: ())
+		self.installArgs = getattr(self, 'installArgs', None)
+		self.uninstallArgs = getattr(self, 'uninstallArgs', None)
+
 	def __repr__(self) -> str:
 		"""
 		Implements ``repr(self)``
@@ -108,26 +129,25 @@ class Package(metaclass=_MetaPackage):
 				return True
 		return False
 
-	def install(self) -> int:
+	def install(self, conf:Configuration) -> int:
 		"""
 		Installs this package.
 
+		:param conf: An object containing the configuration for :program:`traffic_ops_ort`
+
 		:returns: the exit code of the install process
 		"""
-		from .configuration import MODE, Modes
-		from .utils import getYesNoResponse as getYN
-
 		if self.isInstalled():
 			logging.info("%s is already installed - nothing to do", self)
 			return 0
 
-		if MODE is Modes.INTERACTIVE and not getYN("Install %s?" % self, default='Y'):
+		if conf.mode is Configuration.Modes.INTERACTIVE and not getYN("Install %s?" % self, 'Y'):
 			logging.warning("%s will not be installed, dependencies may be unsatisfied!", self)
 			return 0
 
 		logging.info("Installing %s", self)
 
-		if MODE is Modes.REPORT:
+		if conf.mode is Configuration.Modes.REPORT:
 			return 0
 
 		try:
@@ -149,26 +169,23 @@ class Package(metaclass=_MetaPackage):
 
 		return sub.returncode
 
-	def uninstall(self) -> int:
+	def uninstall(self, conf:Configuration) -> int:
 		"""
-		Uninstalls this package
+		Uninstalls this package. I have no idea how one would make use of this from within ATC...
 
 		:returns: the exit code of the uninstall process
 		"""
-		from .configuration import MODE, Modes
-		from .utils import getYesNoResponse as getYN
-
 		if not self.isInstalled():
 			logging.info("%s is not installed - nothing to do", self)
 			return 0
 
-		if MODE is Modes.INTERACTIVE and not getYN("Uninstall %s?" % self, default='Y'):
+		if conf.mode is Configuration.Modes.INTERACTIVE and not getYN("Uninstall %s?" % self, 'Y'):
 			logging.warning("%s will not be installed, dependencies may be out of date!", self)
 			return 0
 
 		logging.info("Uninstalling %s", self)
 
-		if MODE is Modes.REPORT:
+		if conf.mode is Configuration.Modes.REPORT:
 			return 0
 
 		try:

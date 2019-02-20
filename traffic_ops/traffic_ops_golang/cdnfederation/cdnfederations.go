@@ -38,12 +38,11 @@ import (
 
 // we need a type alias to define functions on
 type TOCDNFederation struct {
-	ReqInfo *api.APIInfo `json:"-"`
+	api.APIInfoImpl `json:"-"`
 	tc.CDNFederation
 	TenantID *int `json:"-" db:"tenant_id"`
 }
 
-func (v *TOCDNFederation) APIInfo() *api.APIInfo         { return v.ReqInfo }
 func (v *TOCDNFederation) SetLastUpdated(t tc.TimeNoMod) { v.LastUpdated = &t }
 func (v *TOCDNFederation) InsertQuery() string           { return insertQuery() }
 func (v *TOCDNFederation) NewReadObj() interface{}       { return &TOCDNFederation{} }
@@ -64,13 +63,6 @@ func (v *TOCDNFederation) ParamColumns() map[string]dbhelpers.WhereColumnInfo {
 }
 func (v *TOCDNFederation) DeleteQuery() string { return deleteQuery() }
 func (v *TOCDNFederation) UpdateQuery() string { return updateQuery() }
-
-// Used for all CRUD routes
-func GetTypeSingleton() api.CRUDFactory {
-	return func(reqInfo *api.APIInfo) api.CRUDer {
-		return &TOCDNFederation{reqInfo, tc.CDNFederation{}, nil}
-	}
-}
 
 // Fufills `Identifier' interface
 func (fed TOCDNFederation) GetKeyFieldsInfo() []api.KeyFieldInfo {
@@ -180,13 +172,13 @@ func (fed *TOCDNFederation) Read() ([]interface{}, error, error, int) {
 	}
 
 	if len(filteredFederations) == 0 {
-		if fed.ID == nil {
-			return nil, nil, nil, http.StatusNotFound
+		if fed.ID != nil {
+			return nil, errors.New("not found"), nil, http.StatusNotFound
 		}
-		if ok, err := dbhelpers.CDNExists(fed.APIInfo().Params["name"], fed.APIInfo().Tx); err != nil {
+		if ok, err := dbhelpers.CDNExists(fed.APIInfo().Params["name"], fed.APIInfo().Tx.Tx); err != nil {
 			return nil, nil, errors.New("verifying CDN exists: " + err.Error()), http.StatusInternalServerError
 		} else if !ok {
-			return nil, nil, nil, http.StatusNotFound
+			return nil, errors.New("cdn not found"), nil, http.StatusNotFound
 		}
 	}
 	return filteredFederations, nil, nil, http.StatusOK

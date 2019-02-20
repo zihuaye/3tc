@@ -22,82 +22,18 @@ import (
 )
 
 func TestOrigins(t *testing.T) {
-	CreateTestCDNs(t)
-	defer DeleteTestCDNs(t)
-	CreateTestTypes(t)
-	defer DeleteTestTypes(t)
-	CreateTestProfiles(t)
-	defer DeleteTestProfiles(t)
-	CreateTestStatuses(t)
-	defer DeleteTestStatuses(t)
-	CreateTestDivisions(t)
-	defer DeleteTestDivisions(t)
-	CreateTestRegions(t)
-	defer DeleteTestRegions(t)
-	CreateTestPhysLocations(t)
-	defer DeleteTestPhysLocations(t)
-	CreateTestCacheGroups(t)
-	defer DeleteTestCacheGroups(t)
-	CreateTestServers(t)
-	defer DeleteTestServers(t)
-	CreateTestDeliveryServices(t)
-	defer DeleteTestDeliveryServices(t)
-	CreateTestCoordinates(t)
-	defer DeleteTestCoordinates(t)
-	// TODO: add tenants once their API integration tests are implemented
-
-	CreateTestOrigins(t)
-	defer DeleteTestOrigins(t)
-	UpdateTestOrigins(t)
-	GetTestOrigins(t)
+	WithObjs(t, []TCObj{CDNs, Types, Tenants, Parameters, Profiles, Statuses, Divisions, Regions, PhysLocations, CacheGroups, Servers, DeliveryServices, Coordinates, Origins}, func() {
+		UpdateTestOrigins(t)
+		GetTestOrigins(t)
+	})
 }
 
 func CreateTestOrigins(t *testing.T) {
 	failed := false
 
-	// GET ORIGIN1 profile
-	respProfiles, _, err := TOSession.GetProfileByName("ORIGIN1")
-	if err != nil {
-		t.Errorf("cannot GET Profiles - %v\n", err)
-		failed = true
-	}
-	respProfile := respProfiles[0]
-
-	// GET originCachegroup cachegroup
-	respCacheGroups, _, err := TOSession.GetCacheGroupNullableByName("originCachegroup")
-	if err != nil {
-		t.Errorf("cannot GET CacheGroup by name: originCachegroup - %v\n", err)
-		failed = true
-	}
-	respCacheGroup := respCacheGroups[0]
-
-	// GET deliveryservices
-	respDeliveryServices, _, err := TOSession.GetDeliveryServices()
-	if err != nil {
-		t.Errorf("cannot GET Delivery Services - %v\n", err)
-		failed = true
-	}
-	if len(respDeliveryServices) == 0 {
-		t.Errorf("no delivery services found")
-		failed = true
-	}
-
-	// GET coordinate1 coordinate
-	respCoordinates, _, err := TOSession.GetCoordinateByName("coordinate1")
-	if err != nil {
-		t.Errorf("cannot GET Coordinate by name: coordinate1 - %v\n", err)
-		failed = true
-	}
-	respCoordinate := respCoordinates[0]
-
 	// loop through origins, assign FKs and create
 	for _, origin := range testData.Origins {
-		origin.CachegroupID = respCacheGroup.ID
-		origin.CoordinateID = &respCoordinate.ID
-		origin.ProfileID = &respProfile.ID
-		origin.DeliveryServiceID = &respDeliveryServices[0].ID
-
-		_, _, err = TOSession.CreateOrigin(origin)
+		_, _, err := TOSession.CreateOrigin(origin)
 		if err != nil {
 			t.Errorf("could not CREATE origins: %v\n", err)
 			failed = true

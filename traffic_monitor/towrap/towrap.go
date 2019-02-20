@@ -20,16 +20,20 @@ package towrap
  */
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/apache/trafficcontrol/lib/go-log"
 	"github.com/apache/trafficcontrol/lib/go-tc"
+	"github.com/apache/trafficcontrol/traffic_monitor/config"
 	"github.com/apache/trafficcontrol/traffic_ops/client"
+
+	"github.com/json-iterator/go"
 )
 
 // ITrafficOpsSession provides an interface to the Traffic Ops client, so it may be wrapped or mocked.
@@ -46,7 +50,10 @@ type ITrafficOpsSession interface {
 	DeliveryServices() ([]tc.DeliveryService, error)
 	CacheGroups() ([]tc.CacheGroupNullable, error)
 	CRConfigHistory() []CRConfigStat
+	BackupFileExists() bool
 }
+
+const localHostIP = "127.0.0.1"
 
 var ErrNilSession = fmt.Errorf("nil session")
 
@@ -60,6 +67,15 @@ type ByteTime struct {
 type ByteMapCache struct {
 	cache *map[string]ByteTime
 	m     *sync.RWMutex
+}
+
+func (s TrafficOpsSessionThreadsafe) BackupFileExists() bool {
+	if _, err := os.Stat(s.CRConfigBackupFile); !os.IsNotExist(err) {
+		if _, err = os.Stat(s.TMConfigBackupFile); !os.IsNotExist(err) {
+			return true
+		}
+	}
+	return false
 }
 
 func NewByteMapCache() ByteMapCache {
@@ -147,15 +163,17 @@ type CRConfigStat struct {
 
 // TrafficOpsSessionThreadsafe provides access to the Traffic Ops client safe for multiple goroutines. This fulfills the ITrafficOpsSession interface.
 type TrafficOpsSessionThreadsafe struct {
-	session      **client.Session // pointer-to-pointer, because we're given a pointer from the Traffic Ops package, and we don't want to copy it.
-	m            *sync.Mutex
-	lastCRConfig ByteMapCache
-	crConfigHist CRConfigHistoryThreadsafe
+	session            **client.Session // pointer-to-pointer, because we're given a pointer from the Traffic Ops package, and we don't want to copy it.
+	m                  *sync.Mutex
+	lastCRConfig       ByteMapCache
+	crConfigHist       CRConfigHistoryThreadsafe
+	CRConfigBackupFile string
+	TMConfigBackupFile string
 }
 
 // NewTrafficOpsSessionThreadsafe returns a new threadsafe TrafficOpsSessionThreadsafe wrapping the given `Session`.
-func NewTrafficOpsSessionThreadsafe(s *client.Session, crConfigHistoryLimit uint64) TrafficOpsSessionThreadsafe {
-	return TrafficOpsSessionThreadsafe{session: &s, m: &sync.Mutex{}, lastCRConfig: NewByteMapCache(), crConfigHist: NewCRConfigHistoryThreadsafe(crConfigHistoryLimit)}
+func NewTrafficOpsSessionThreadsafe(s *client.Session, crConfigHistoryLimit uint64, cfg config.Config) TrafficOpsSessionThreadsafe {
+	return TrafficOpsSessionThreadsafe{session: &s, m: &sync.Mutex{}, lastCRConfig: NewByteMapCache(), crConfigHist: NewCRConfigHistoryThreadsafe(crConfigHistoryLimit), CRConfigBackupFile: cfg.CRConfigBackupFile, TMConfigBackupFile: cfg.TMConfigBackupFile}
 }
 
 // Set sets the internal Traffic Ops session. This is safe for multiple goroutines, being aware they will race.
@@ -228,13 +246,35 @@ func (s *TrafficOpsSessionThreadsafe) CRConfigValid(crc *tc.CRConfig, cdn string
 
 // CRConfigRaw returns the CRConfig from the Traffic Ops. This is safe for multiple goroutines.
 func (s TrafficOpsSessionThreadsafe) CRConfigRaw(cdn string) ([]byte, error) {
+
 	ss := s.get()
+
+	var remoteAddr string
+
 	if ss == nil {
 		return nil, ErrNilSession
 	}
-	b, reqInf, err := ss.GetCRConfig(cdn)
 
-	hist := &CRConfigStat{time.Now(), reqInf.RemoteAddr.String(), tc.CRConfigStats{}, err}
+	b, reqInf, err := ss.GetCRConfig(cdn)
+	if err == nil {
+		remoteAddr = reqInf.RemoteAddr.String()
+		ioutil.WriteFile(s.CRConfigBackupFile, b, 0644)
+	} else {
+		if s.BackupFileExists() {
+			b, err = ioutil.ReadFile(s.CRConfigBackupFile)
+			if err != nil {
+				err = errors.New("file Read Error: " + err.Error())
+				return nil, err
+			}
+			remoteAddr = localHostIP
+			log.Errorln("Error getting CRConfig from traffic_ops, backup file exists, reading from file")
+			err = nil
+		} else {
+			return nil, ErrNilSession
+		}
+	}
+
+	hist := &CRConfigStat{time.Now(), remoteAddr, tc.CRConfigStats{}, err}
 	defer s.crConfigHist.Add(hist)
 
 	if err != nil {
@@ -242,6 +282,7 @@ func (s TrafficOpsSessionThreadsafe) CRConfigRaw(cdn string) ([]byte, error) {
 	}
 
 	crc := &tc.CRConfig{}
+	json := jsoniter.ConfigFastest
 	if err = json.Unmarshal(b, crc); err != nil {
 		err = errors.New("invalid JSON: " + err.Error())
 		hist.Err = err
@@ -275,8 +316,33 @@ func (s TrafficOpsSessionThreadsafe) trafficMonitorConfigMapRaw(cdn string) (*tc
 	if ss == nil {
 		return nil, ErrNilSession
 	}
-	configMap, _, error := ss.GetTrafficMonitorConfigMap(cdn)
-	return configMap, error
+
+	configMap, _, err := ss.GetTrafficMonitorConfigMap(cdn)
+	if err != nil {
+		// Default error case, no backup file exists
+		if !s.BackupFileExists() {
+			return configMap, err
+		}
+
+		b, err := ioutil.ReadFile(s.TMConfigBackupFile)
+		if err != nil {
+			return nil, errors.New("reading TMConfigBackupFile: " + err.Error())
+		}
+
+		log.Errorln("Error getting configMap from traffic_ops, backup file exists, reading from file")
+		json := jsoniter.ConfigFastest
+		if err := json.Unmarshal(b, &configMap); err != nil {
+			return nil, errors.New("unmarhsalling backup file monitoring.json: " + err.Error())
+		}
+		return configMap, err
+	}
+
+	json := jsoniter.ConfigFastest
+	data, err := json.Marshal(*configMap)
+	if err == nil {
+		ioutil.WriteFile(s.TMConfigBackupFile, data, 0644)
+	}
+	return configMap, err
 }
 
 // TrafficMonitorConfigMap returns the Traffic Monitor config map from the Traffic Ops. This is safe for multiple goroutines.
@@ -292,6 +358,7 @@ func (s TrafficOpsSessionThreadsafe) TrafficMonitorConfigMap(cdn string) (*tc.Tr
 	}
 
 	crConfig := tc.CRConfig{}
+	json := jsoniter.ConfigFastest
 	if err := json.Unmarshal(crcData, &crConfig); err != nil {
 		return nil, fmt.Errorf("unmarshalling CRConfig JSON : %v", err)
 	}

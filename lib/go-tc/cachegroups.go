@@ -54,6 +54,7 @@ type CacheGroup struct {
 	Type                        string               `json:"typeName" db:"type_name"` // aliased to type_name to disambiguate struct scans due to join on 'type' table
 	TypeID                      int                  `json:"typeId" db:"type_id"`     // aliased to type_id to disambiguate struct scans due join on 'type' table
 	LastUpdated                 TimeNoMod            `json:"lastUpdated" db:"last_updated"`
+	Fallbacks                   []string             `json:"fallbacks" db:"fallbacks"`
 }
 
 type CacheGroupNullable struct {
@@ -61,7 +62,7 @@ type CacheGroupNullable struct {
 	Name                        *string               `json:"name" db:"name"`
 	ShortName                   *string               `json:"shortName" db:"short_name"`
 	Latitude                    *float64              `json:"latitude" db:"latitude"`
-	Longitude                   *float64              `json:"longitude"db:"longitude"`
+	Longitude                   *float64              `json:"longitude" db:"longitude"`
 	ParentName                  *string               `json:"parentCachegroupName" db:"parent_cachegroup_name"`
 	ParentCachegroupID          *int                  `json:"parentCachegroupId" db:"parent_cachegroup_id"`
 	SecondaryParentName         *string               `json:"secondaryParentCachegroupName" db:"secondary_parent_cachegroup_name"`
@@ -71,6 +72,7 @@ type CacheGroupNullable struct {
 	Type                        *string               `json:"typeName" db:"type_name"` // aliased to type_name to disambiguate struct scans due to join on 'type' table
 	TypeID                      *int                  `json:"typeId" db:"type_id"`     // aliased to type_id to disambiguate struct scans due join on 'type' table
 	LastUpdated                 *TimeNoMod            `json:"lastUpdated" db:"last_updated"`
+	Fallbacks                   *[]string             `json:"fallbacks" db:"fallbacks"`
 }
 
 type CachegroupTrimmedName struct {

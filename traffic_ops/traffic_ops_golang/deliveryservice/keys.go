@@ -20,7 +20,6 @@ package deliveryservice
  */
 
 import (
-	"bytes"
 	"crypto/x509"
 	"database/sql"
 	"encoding/base64"
@@ -60,7 +59,7 @@ func AddSSLKeys(w http.ResponseWriter, r *http.Request) {
 		api.HandleErr(w, r, inf.Tx.Tx, errCode, userErr, sysErr)
 		return
 	}
-	certChain, err := verifyCertificate(req.Certificate.Crt, "")
+	certChain, isUnknownAuth, err := verifyCertificate(req.Certificate.Crt, "")
 	if err != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusBadRequest, errors.New("verifying certificate: "+err.Error()), nil)
 		return
@@ -75,12 +74,16 @@ func AddSSLKeys(w http.ResponseWriter, r *http.Request) {
 		Version:         *req.Version,
 		Certificate:     *req.Certificate,
 	}
-	if err := riaksvc.PutDeliveryServiceSSLKeysObj(dsSSLKeys, inf.Tx.Tx, inf.Config.RiakAuthOptions); err != nil {
+	if err := riaksvc.PutDeliveryServiceSSLKeysObj(dsSSLKeys, inf.Tx.Tx, inf.Config.RiakAuthOptions, inf.Config.RiakPort); err != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("putting SSL keys in Riak for delivery service '"+*req.DeliveryService+"': "+err.Error()))
 		return
 	}
 	if err := updateSSLKeyVersion(*req.DeliveryService, req.Version.ToInt64(), inf.Tx.Tx); err != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("adding SSL keys to delivery service '"+*req.DeliveryService+"': "+err.Error()))
+		return
+	}
+	if isUnknownAuth {
+		api.WriteRespAlert(w, r, tc.WarnLevel, "WARNING: SSL keys were successfully added for '"+*req.DeliveryService+"', but the certificate is signed by an unknown authority and may be invalid")
 		return
 	}
 	api.WriteResp(w, r, "Successfully added ssl keys for "+*req.DeliveryService)
@@ -160,7 +163,7 @@ func getSSLKeysByXMLIDHelper(xmlID string, inf *api.APIInfo, w http.ResponseWrit
 		api.HandleErr(w, r, inf.Tx.Tx, errCode, userErr, sysErr)
 		return
 	}
-	keyObj, ok, err := riaksvc.GetDeliveryServiceSSLKeysObj(xmlID, version, inf.Tx.Tx, inf.Config.RiakAuthOptions)
+	keyObj, ok, err := riaksvc.GetDeliveryServiceSSLKeysObj(xmlID, version, inf.Tx.Tx, inf.Config.RiakAuthOptions, inf.Config.RiakPort)
 	if err != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("getting ssl keys: "+err.Error()))
 		return
@@ -220,7 +223,7 @@ func DeleteSSLKeys(w http.ResponseWriter, r *http.Request) {
 		api.HandleErr(w, r, inf.Tx.Tx, errCode, userErr, sysErr)
 		return
 	}
-	if err := riaksvc.DeleteDSSSLKeys(inf.Tx.Tx, inf.Config.RiakAuthOptions, xmlID, inf.Params["version"]); err != nil {
+	if err := riaksvc.DeleteDSSSLKeys(inf.Tx.Tx, inf.Config.RiakAuthOptions, inf.Config.RiakPort, xmlID, inf.Params["version"]); err != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, userErr, errors.New("deliveryservice.DeleteSSLKeys: deleting SSL keys: "+err.Error()))
 		return
 	}
@@ -268,24 +271,26 @@ WHERE r.pattern = $2
 // verify the server certificate chain and return the
 // certificate and its chain in the proper order. Returns a verified
 // and ordered certificate and CA chain.
-func verifyCertificate(certificate string, rootCA string) (string, error) {
+// If the cert verification returns UnknownAuthorityError, return true to
+// indicate that the certs are signed by an unknown authority (e.g. self-signed).
+func verifyCertificate(certificate string, rootCA string) (string, bool, error) {
 	// decode, verify, and order certs for storage
 	certs := strings.SplitAfter(certificate, PemCertEndMarker)
 	if len(certs) <= 1 {
-		return "", errors.New("no certificate chain to verify")
+		return "", false, errors.New("no certificate chain to verify")
 	}
 
 	// decode and verify the server certificate
 	block, _ := pem.Decode([]byte(certs[0]))
 	if block == nil {
-		return "", errors.New("could not decode pem-encoded server certificate")
+		return "", false, errors.New("could not decode pem-encoded server certificate")
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return "", errors.New("could not parse the server certificate: " + err.Error())
+		return "", false, errors.New("could not parse the server certificate: " + err.Error())
 	}
 	if !(cert.KeyUsage&x509.KeyUsageKeyEncipherment > 0) {
-		return "", errors.New("no key encipherment usage for the server certificate")
+		return "", false, errors.New("no key encipherment usage for the server certificate")
 	}
 	bundle := ""
 	for i := 0; i < len(certs)-1; i++ {
@@ -294,7 +299,7 @@ func verifyCertificate(certificate string, rootCA string) (string, error) {
 
 	intermediatePool := x509.NewCertPool()
 	if !intermediatePool.AppendCertsFromPEM([]byte(bundle)) {
-		return "", errors.New("certificate CA bundle is empty")
+		return "", false, errors.New("certificate CA bundle is empty")
 	}
 
 	opts := x509.VerifyOptions{
@@ -304,26 +309,31 @@ func verifyCertificate(certificate string, rootCA string) (string, error) {
 		// verify the certificate chain.
 		rootPool := x509.NewCertPool()
 		if !rootPool.AppendCertsFromPEM([]byte(rootCA)) {
-			return "", errors.New("unable to parse root CA certificate")
+			return "", false, errors.New("unable to parse root CA certificate")
 		}
 		opts.Roots = rootPool
 	}
 
 	chain, err := cert.Verify(opts)
 	if err != nil {
-		return "", errors.New("could not verify the certificate chain: " + err.Error())
+		if _, ok := err.(x509.UnknownAuthorityError); ok {
+			return certificate, true, nil
+		}
+		return "", false, errors.New("could not verify the certificate chain: " + err.Error())
 	}
 	if len(chain) < 1 {
-		return "", errors.New("can't find valid chain for cert in file in request")
+		return "", false, errors.New("can't find valid chain for cert in file in request")
 	}
 	pemEncodedChain := ""
 	for _, link := range chain[0] {
-		// Only print non-self signed elements of the chain
-		if link.AuthorityKeyId != nil && !bytes.Equal(link.AuthorityKeyId, link.SubjectKeyId) {
-			block := &pem.Block{Type: "CERTIFICATE", Bytes: link.Raw}
-			pemEncodedChain += string(pem.EncodeToMemory(block))
-		}
+		// Include all certificates in the chain, since verification was successful.
+		block := &pem.Block{Type: "CERTIFICATE", Bytes: link.Raw}
+		pemEncodedChain += string(pem.EncodeToMemory(block))
 	}
+   
+  	if len(pemEncodedChain) < 1 {
+		return "", false, errors.New("Invalid empty certicate chain in request")
+  	}
 
-	return pemEncodedChain, nil
+	return pemEncodedChain, false, nil
 }

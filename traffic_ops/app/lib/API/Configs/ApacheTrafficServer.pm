@@ -1427,7 +1427,6 @@ sub drop_qstring_dot_config {
 sub logging_dot_config {
 	my $self        = shift;
 	my $profile_obj = shift;
-	my $filename    = shift;
 
 	my $data = $self->profile_param_data( $profile_obj->id, "logging.config" );
 
@@ -1438,14 +1437,13 @@ sub logging_dot_config {
 	$text .= " --\n";
 
 	my $max_log_objects = 10;
-	for ( my $i = 0; $i < $max_log_objects; $i = $i + 1 ) {
+
+	# Add formats and filters separately to the top of the file
+	for ( my $i = 0; $i < $max_log_objects; $i = $i + 1) {
 		my $log_format_field = "LogFormat";
-		my $log_object_field = "LogObject";
 		if ( $i > 0 ) {
 			$log_format_field = $log_format_field . "$i";
-			$log_object_field = $log_object_field . "$i";
 		}
-
 		my $log_format_name = $data->{$log_format_field . ".Name"} || "";
 		if ( length($log_format_name) > 0 ) {
 			my $format = $data->{$log_format_field . ".Format"};
@@ -1454,24 +1452,53 @@ sub logging_dot_config {
 			$text .= "	Format = '" . $format . " '\n";
 			$text .= "}\n";
 		}
+	}
+
+	for ( my $i = 0; $i < $max_log_objects; $i = $i + 1) {
+		my $log_filter_field = "LogFilter";
+		if ( $i > 0 ) {
+			$log_filter_field = $log_filter_field . "$i";
+		}
+		my $log_filter_name = $data->{$log_filter_field . ".Name"} || "";
+		if ( length($log_filter_name) > 0) {
+			my $filter = $data->{$log_filter_field . ".Filter"};
+			$filter =~ s/\\/\\\\/g;
+			$filter =~ s/'/\\'/g;
+			my $log_filter_type = $data->{$log_filter_field . ".Type"} || "accept";
+			$text .= $log_filter_name . " = filter." . $log_filter_type . "('" . $filter . "')\n";
+		}
+	}
+
+	for ( my $i = 0; $i < $max_log_objects; $i = $i + 1 ) {
+		my $log_object_field = "LogObject";
+		if ( $i > 0 ) {
+			$log_object_field = $log_object_field . "$i";
+		}
 
 		my $log_object_filename = $data->{$log_object_field . ".Filename"} || "";
 		if ( length($log_object_filename) > 0 ) {
+			my $log_object_type                 = $data->{$log_object_field . ".Type"}               || "ascii";
 			my $log_object_format               = $data->{$log_object_field . ".Format"}             || "";
 			my $log_object_rolling_enabled      = $data->{$log_object_field . ".RollingEnabled"}     || "";
 			my $log_object_rolling_interval_sec = $data->{$log_object_field . ".RollingIntervalSec"} || "";
 			my $log_object_rolling_offset_hr    = $data->{$log_object_field . ".RollingOffsetHr"}    || "";
 			my $log_object_rolling_size_mb      = $data->{$log_object_field . ".RollingSizeMb"}      || "";
-			my $log_object_header               = $data->{$log_object_field . ".Header"}             || "";
+			my $log_object_filters              = $data->{$log_object_field . ".Filters"}            || "";
 
-			$text .= "\nlog.ascii {\n";
-			$text .= "  Format = " . $log_format_name . ",\n";
-			$text .= "  Filename = '" . $log_object_filename . "',\n";
-			$text .= "  RollingEnabled = " . $log_object_rolling_enabled . ",\n" unless defined();
-			$text .= "  RollingIntervalSec = " . $log_object_rolling_interval_sec . ",\n";
-			$text .= "  RollingOffsetHr = " . $log_object_rolling_offset_hr . ",\n";
-			$text .= "  RollingSizeMb = " . $log_object_rolling_size_mb . "\n";
-			$text .= "}\n";
+			$text .= "\nlog." . $log_object_type . " {\n";
+			$text .= "  Format = " . $log_object_format . ",\n";
+			$text .= "  Filename = '" . $log_object_filename . "'";
+			if ( $log_object_type ne "pipe") {
+				$text .= ",\n";
+				$text .= "  RollingEnabled = " . $log_object_rolling_enabled . ",\n";
+				$text .= "  RollingIntervalSec = " . $log_object_rolling_interval_sec . ",\n";
+				$text .= "  RollingOffsetHr = " . $log_object_rolling_offset_hr . ",\n";
+				$text .= "  RollingSizeMb = " . $log_object_rolling_size_mb;
+			}
+			if ( length($log_object_filters) > 0 ) {
+				$text .= ",\n  Filters = { " . $log_object_filters . " }";
+			}
+			$text .= "\n\}\n";
 		}
 	}
 
@@ -1767,7 +1794,16 @@ sub regex_revalidate_dot_config {
 	my $max_hours = $max_days * 24;
 	my $min_hours = 1;
 
-	my $rs = $self->db->resultset('Job')->search( { start_time => \$interval }, { prefetch => 'job_deliveryservice' } );
+	my $date = Date::Manip::Date->new();
+
+	my $rs = $self->db->resultset('Job')->search(
+		{
+			start_time => \$interval,
+			"job_deliveryservice.cdn_id" => $cdn_obj->id,
+		},
+		{
+			prefetch => 'job_deliveryservice'
+		} );
 	while ( my $row = $rs->next ) {
 		next unless defined( $row->job_deliveryservice );
 
@@ -1787,7 +1823,6 @@ sub regex_revalidate_dot_config {
 			next;
 		}
 
-		my $date       = new Date::Manip::Date();
 		my $start_time = $row->start_time;
 		my $start_date = ParseDate($start_time);
 		my $end_date   = DateCalc( $start_date, ParseDateDelta( $ttl . ':00:00' ) );
@@ -1803,15 +1838,11 @@ sub regex_revalidate_dot_config {
 		}
 		my $asset_url = $row->asset_url;
 
-		my $job_cdn_id = $row->job_deliveryservice->cdn_id;
-		if ( $cdn_obj->id == $job_cdn_id ) {
-
-			# if there are multipe with same re, pick the longes lasting.
-			if ( !defined( $regex_time{ $row->asset_url } )
-				|| ( defined( $regex_time{ $row->asset_url } ) && $purge_end > $regex_time{ $row->asset_url } ) )
-			{
-				$regex_time{ $row->asset_url } = $purge_end;
-			}
+		# if there are multiple with same regex, pick the longest lasting.
+		if ( !defined( $regex_time{ $row->asset_url } )
+			|| ( defined( $regex_time{ $row->asset_url } ) && $purge_end > $regex_time{ $row->asset_url } ) )
+		{
+			$regex_time{ $row->asset_url } = $purge_end;
 		}
 	}
 
@@ -2601,16 +2632,14 @@ sub parent_dot_config { #fix qstring - should be ignore for quika
 
 		my $default_dest_text;
 		my $parent_select_alg = $self->profile_param_value( $server_obj->profile->id, 'parent.config', 'algorithm', undef );
+		$default_dest_text .= "dest_domain=. ";
 		if ( defined($parent_select_alg) && $parent_select_alg eq 'consistent_hash' ) {
-			$default_dest_text .= "dest_domain=. ";
 			$default_dest_text .= $parents . $secparents;
-			$default_dest_text .= " round_robin=consistent_hash go_direct=false";
 		}
 		else {    # default to old situation.
-			$default_dest_text .= "dest_domain=. ";
 			$default_dest_text .= $parents;
-			$default_dest_text .= " round_robin=urlhash go_direct=false";
 		}
+		$default_dest_text .= " round_robin=consistent_hash go_direct=false";
 
 		my $qstring = $self->profile_param_value( $server_obj->profile->id, 'parent.config', 'qstring', undef );
 		if ( defined($qstring) ) {
@@ -2634,7 +2663,7 @@ sub remap_dot_config {
 	my $server_obj = shift;
 	my $data;
 	my @text_array;
-
+	my %ats_var_types = map { $_ => 1 } qw(INT FLOAT STRING);
 
 	my $pdata = $self->param_data( $server_obj, 'package' );
 	my $header = $self->header_comment( $server_obj->host_name );
@@ -2669,6 +2698,27 @@ sub remap_dot_config {
 			if ( $ds->{range_request_handling} == RRH_CACHE_RANGE_REQUEST ) {
 				$mid_remap{ $ds->{org} } .= " \@plugin=cache_range_requests.so";
 			}
+
+			#Add DS profile records.config entries as overrided ATS parameters
+			if ( defined( $ds->{'param'}->{'records.config'} ) ) {
+				foreach my $rc_entry ( keys %{ $ds->{'param'}->{'records.config'} } ) {
+					my @rec_params = split(' ', $rc_entry, 3);
+
+					#Check that the parameter name matches the records.config syntax
+					if ( $rec_params[0] eq 'CONFIG') {
+						my @rec_values = split(' ', $ds->{'param'}->{'records.config'}->{$rc_entry}, 2);
+
+						#Check parameter value matches records.config syntax
+						if ( $ats_var_types{$rec_values[0]}) {
+							$mid_remap{ $ds->{org} } .= ' @plugin=conf_remap.so @pparam=' . $rec_params[1] . '=' . $rec_values[1];
+						} else {
+							$self->app->log->debug(" mid ds records.config entry did not match the known syntax for values");
+						}
+					} else {
+						$self->app->log->debug(" mid ds records.config entry did not match the known syntax for parameter names");
+					}
+				}
+			}		
 		}
 		foreach my $key ( keys %mid_remap ) {
 			my $remap_text .= "map " . $key . " " . $key . $mid_remap{$key} . "\n";
@@ -2715,7 +2765,7 @@ sub build_remap_line {
 	my $remap       = shift;
 	my $map_from    = shift;
 	my $map_to      = shift;
-
+	my %ats_var_types = map { $_ => 1 } qw(INT FLOAT STRING);
 
 
 	my $dscp      = $remap->{dscp};
@@ -2766,6 +2816,27 @@ sub build_remap_line {
 			$text .= " \@pparam=--" . $ck_entry . "=" . $remap->{'param'}->{'cachekey.config'}->{$ck_entry};
 		}
 	}
+
+	#Add DS profile records.config entries as overrided ATS parameters
+	if ( defined( $remap->{'param'}->{'records.config'} ) ) {
+		foreach my $rc_entry ( keys %{ $remap->{'param'}->{'records.config'} } ) {
+			my @rec_params = split(' ', $rc_entry, 3);
+
+			#Check that the parameter name matches the records.config syntax
+			if ( $rec_params[0] eq 'CONFIG') {
+				my @rec_values = split(' ', $remap->{'param'}->{'records.config'}->{$rc_entry}, 2);
+
+				#Check parameter value matches records.config syntax
+				if ( $ats_var_types{$rec_values[0]}) {
+					$text .= ' @plugin=conf_remap.so @pparam=' . $rec_params[1] . '=' . $rec_values[1];
+				} else {
+					$self->app->log->debug(" ds records.config entry did not match the known syntax for values");
+				}
+			}  else {
+				$self->app->log->debug(" ds records.config entry did not match the known syntax for parameter names");
+			}
+		}
+	}	
 
 	# Note: should use full path here?
 	if ( defined( $remap->{regex_remap} ) && $remap->{regex_remap} ne "" ) {

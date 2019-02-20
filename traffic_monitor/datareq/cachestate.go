@@ -20,7 +20,6 @@
 package datareq
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -32,6 +31,8 @@ import (
 	"github.com/apache/trafficcontrol/traffic_monitor/peer"
 	"github.com/apache/trafficcontrol/traffic_monitor/threadsafe"
 	"github.com/apache/trafficcontrol/traffic_monitor/todata"
+
+	"github.com/json-iterator/go"
 )
 
 // CacheStatus contains summary stat data about the given cache.
@@ -68,13 +69,14 @@ func srvAPICacheStates(
 	statMaxKbpses threadsafe.CacheKbpses,
 	monitorConfig threadsafe.TrafficMonitorConfigMap,
 ) ([]byte, error) {
-	return json.Marshal(createCacheStatuses(toData.Get().ServerTypes, statInfoHistory.Get(), statResultHistory.Get(), healthHistory.Get(), lastHealthDurations.Get(), localStates.Get().Caches, lastStats.Get(), localCacheStatus, statMaxKbpses, monitorConfig.Get().TrafficServer))
+	json := jsoniter.ConfigFastest
+	return json.Marshal(createCacheStatuses(toData.Get().ServerTypes, statInfoHistory.Get(), statResultHistory, healthHistory.Get(), lastHealthDurations.Get(), localStates.Get().Caches, lastStats.Get(), localCacheStatus, statMaxKbpses, monitorConfig.Get().TrafficServer))
 }
 
 func createCacheStatuses(
 	cacheTypes map[tc.CacheName]tc.CacheType,
 	statInfoHistory cache.ResultInfoHistory,
-	statResultHistory cache.ResultStatHistory,
+	statResultHistory threadsafe.ResultStatHistory,
 	healthHistory map[tc.CacheName][]cache.Result,
 	lastHealthDurations map[tc.CacheName]time.Duration,
 	cacheStates map[tc.CacheName]tc.IsAvailable,
@@ -200,20 +202,22 @@ func cacheStatusAndPoller(server tc.CacheName, serverInfo tc.TrafficServer, loca
 	return fmt.Sprintf("%s - unavailable", statusVal.Status), statusVal.Poller
 }
 
-func createCacheConnections(statResultHistory cache.ResultStatHistory) map[tc.CacheName]int64 {
+func createCacheConnections(statResultHistory threadsafe.ResultStatHistory) map[tc.CacheName]int64 {
 	conns := map[tc.CacheName]int64{}
-	for server, history := range statResultHistory {
-		vals, ok := history["proxy.process.http.current_client_connections"]
-		if !ok || len(vals) < 1 {
-			continue
+	statResultHistory.Range(func(server tc.CacheName, history threadsafe.ResultStatValHistory) bool {
+		// for server, history := range statResultHistory {
+		vals := history.Load("proxy.process.http.current_client_connections")
+		if len(vals) == 0 {
+			return true
 		}
 
 		v, ok := vals[0].Val.(float64)
 		if !ok {
-			continue // TODO log warning? error?
+			return true // TODO log warning? error?
 		}
 		conns[server] = int64(v)
-	}
+		return true
+	})
 	return conns
 }
 

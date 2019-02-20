@@ -17,9 +17,11 @@ package client
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 )
@@ -30,6 +32,16 @@ const (
 
 // Create a Region
 func (to *Session) CreateRegion(region tc.Region) (tc.Alerts, ReqInf, error) {
+	if region.Division == 0 && region.DivisionName != "" {
+		divisions, _, err := to.GetDivisionByName(region.DivisionName)
+		if err != nil {
+			return tc.Alerts{}, ReqInf{}, err
+		}
+		if len(divisions) == 0 {
+			return tc.Alerts{}, ReqInf{}, errors.New("no division with name " + region.DivisionName)
+		}
+		region.Division = divisions[0].ID
+	}
 
 	var remoteAddr net.Addr
 	reqBody, err := json.Marshal(region)
@@ -101,7 +113,7 @@ func (to *Session) GetRegionByID(id int) ([]tc.Region, ReqInf, error) {
 
 // GET a Region by the Region name
 func (to *Session) GetRegionByName(name string) ([]tc.Region, ReqInf, error) {
-	url := fmt.Sprintf("%s?name=%s", API_v13_REGIONS, name)
+	url := fmt.Sprintf("%s?name=%s", API_v13_REGIONS, url.QueryEscape(name))
 	resp, remoteAddr, err := to.request(http.MethodGet, url, nil)
 	reqInf := ReqInf{CacheHitStatus: CacheHitStatusMiss, RemoteAddr: remoteAddr}
 	if err != nil {
@@ -133,7 +145,7 @@ func (to *Session) DeleteRegionByID(id int) (tc.Alerts, ReqInf, error) {
 
 // GetRegionByNamePath gets a region by name, using the /api/version/region/name path. This gets the same data as GetRegionByName, but uses a different API path to get the same data, and returns a slightly different format.
 func (to *Session) GetRegionByNamePath(name string) ([]tc.RegionName, ReqInf, error) {
-	url := apiBase + `/regions/name/` + name
+	url := apiBase + `/regions/name/` + url.QueryEscape(name)
 	reqResp, remoteAddr, err := to.request(http.MethodGet, url, nil)
 	reqInf := ReqInf{CacheHitStatus: CacheHitStatusMiss, RemoteAddr: remoteAddr}
 	if err != nil {

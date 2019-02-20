@@ -37,6 +37,7 @@ import (
 	"github.com/apache/trafficcontrol/lib/go-util"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/auth"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/config"
+	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/tocookie"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
@@ -45,8 +46,7 @@ import (
 const DBContextKey = "db"
 const ConfigContextKey = "context"
 const ReqIDContextKey = "reqid"
-
-type CRUDFactory func(reqInfo *APIInfo) CRUDer
+const APIRespWrittenKey = "respwritten"
 
 // WriteResp takes any object, serializes it as JSON, and writes that to w. Any errors are logged and written to w via tc.GetHandleErrorsFunc.
 // This is a helper for the common case; not using this in unusual cases is perfectly acceptable.
@@ -59,6 +59,12 @@ func WriteResp(w http.ResponseWriter, r *http.Request, v interface{}) {
 
 // WriteRespRaw acts like WriteResp, but doesn't wrap the object in a `{"response":` object. This should be used to respond with endpoints which don't wrap their response in a "response" object.
 func WriteRespRaw(w http.ResponseWriter, r *http.Request, v interface{}) {
+	if respWritten(r) {
+		log.Errorf("WriteRespRaw called after a write already occurred! Not double-writing! Path %s", r.URL.Path)
+		return
+	}
+	setRespWritten(r)
+
 	bts, err := json.Marshal(v)
 	if err != nil {
 		log.Errorf("marshalling JSON (raw) for %T: %v", v, err)
@@ -72,6 +78,12 @@ func WriteRespRaw(w http.ResponseWriter, r *http.Request, v interface{}) {
 // WriteRespVals is like WriteResp, but also takes a map of root-level values to write. The API most commonly needs these for meta-parameters, like size, limit, and orderby.
 // This is a helper for the common case; not using this in unusual cases is perfectly acceptable.
 func WriteRespVals(w http.ResponseWriter, r *http.Request, v interface{}, vals map[string]interface{}) {
+	if respWritten(r) {
+		log.Errorf("WriteRespVals called after a write already occurred! Not double-writing! Path %s", r.URL.Path)
+		return
+	}
+	setRespWritten(r)
+
 	vals["response"] = v
 	respBts, err := json.Marshal(vals)
 	if err != nil {
@@ -89,6 +101,12 @@ func WriteRespVals(w http.ResponseWriter, r *http.Request, v interface{}, vals m
 //
 // This is a helper for the common case; not using this in unusual cases is perfectly acceptable.
 func HandleErr(w http.ResponseWriter, r *http.Request, tx *sql.Tx, statusCode int, userErr error, sysErr error) {
+	if respWritten(r) {
+		log.Errorf("HandleErr called after a write already occurred! Attempting to write the error anyway! Path %s", r.URL.Path)
+		// Don't return, attempt to rollback and write the error anyway
+	}
+	setRespWritten(r)
+
 	if tx != nil {
 		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
 			log.Errorln("rolling back transaction: " + err.Error())
@@ -145,6 +163,12 @@ func RespWriterVals(w http.ResponseWriter, r *http.Request, tx *sql.Tx, vals map
 // WriteRespAlert creates an alert, serializes it as JSON, and writes that to w. Any errors are logged and written to w via tc.GetHandleErrorsFunc.
 // This is a helper for the common case; not using this in unusual cases is perfectly acceptable.
 func WriteRespAlert(w http.ResponseWriter, r *http.Request, level tc.AlertLevel, msg string) {
+	if respWritten(r) {
+		log.Errorf("WriteRespAlert called after a write already occurred! Not double-writing! Path %s", r.URL.Path)
+		return
+	}
+	setRespWritten(r)
+
 	resp := struct{ tc.Alerts }{tc.CreateAlerts(level, msg)}
 	respBts, err := json.Marshal(resp)
 	if err != nil {
@@ -158,6 +182,12 @@ func WriteRespAlert(w http.ResponseWriter, r *http.Request, level tc.AlertLevel,
 // WriteRespAlertObj Writes the given alert, and the given response object.
 // This is a helper for the common case; not using this in unusual cases is perfectly acceptable.
 func WriteRespAlertObj(w http.ResponseWriter, r *http.Request, level tc.AlertLevel, msg string, obj interface{}) {
+	if respWritten(r) {
+		log.Errorf("WriteRespAlertObj called after a write already occurred! Not double-writing! Path %s", r.URL.Path)
+		return
+	}
+	setRespWritten(r)
+
 	resp := struct {
 		tc.Alerts
 		Response interface{} `json:"response"`
@@ -222,7 +252,7 @@ func StripParamJSON(params map[string]string) map[string]string {
 func AllParams(req *http.Request, required []string, ints []string) (map[string]string, map[string]int, error, error, int) {
 	params, err := GetCombinedParams(req)
 	if err != nil {
-		return nil, nil, errors.New("getting combined URI parameters: " + err.Error()), nil, http.StatusBadRequest
+		return nil, nil, nil, errors.New("getting combined URI parameters: " + err.Error()), http.StatusInternalServerError
 	}
 	params = StripParamJSON(params)
 	if err := ParamsHaveRequired(params, required); err != nil {
@@ -230,7 +260,7 @@ func AllParams(req *http.Request, required []string, ints []string) (map[string]
 	}
 	intParams, err := IntParams(params, ints)
 	if err != nil {
-		return nil, nil, nil, errors.New("getting integer parameters: " + err.Error()), http.StatusInternalServerError
+		return nil, nil, errors.New("getting integer parameters: " + err.Error()), nil, http.StatusBadRequest
 	}
 	return params, intParams, nil, nil, 0
 }
@@ -264,7 +294,7 @@ type APIInfo struct {
 //
 // It is encouraged to call APIInfo.Tx.Tx.Commit() manually when all queries are finished, to release database resources early, and also to return an error to the user if the commit failed.
 //
-// NewInfo guarantees the returned APIInfo.Tx is nil or valid, even if a returned error is not nil. Hence, it is safe to pass the Tx to HandleErr when this returns errors.
+// NewInfo guarantees the returned APIInfo.Tx is non-nil and APIInfo.Tx.Tx is nil or valid, even if a returned error is not nil. Hence, it is safe to pass the Tx.Tx to HandleErr when this returns errors.
 //
 // Close() must be called to free resources, and should be called in a defer immediately after NewInfo(), to finish the transaction.
 //
@@ -290,31 +320,31 @@ type APIInfo struct {
 //  }
 //
 func NewInfo(r *http.Request, requiredParams []string, intParamNames []string) (*APIInfo, error, error, int) {
-	db, err := getDB(r.Context())
+	db, err := GetDB(r.Context())
 	if err != nil {
-		return &APIInfo{}, errors.New("getting db: " + err.Error()), nil, http.StatusInternalServerError
+		return &APIInfo{Tx: &sqlx.Tx{}}, errors.New("getting db: " + err.Error()), nil, http.StatusInternalServerError
 	}
-	cfg, err := getConfig(r.Context())
+	cfg, err := GetConfig(r.Context())
 	if err != nil {
-		return &APIInfo{}, errors.New("getting config: " + err.Error()), nil, http.StatusInternalServerError
+		return &APIInfo{Tx: &sqlx.Tx{}}, errors.New("getting config: " + err.Error()), nil, http.StatusInternalServerError
 	}
 	reqID, err := getReqID(r.Context())
 	if err != nil {
-		return &APIInfo{}, errors.New("getting reqID: " + err.Error()), nil, http.StatusInternalServerError
+		return &APIInfo{Tx: &sqlx.Tx{}}, errors.New("getting reqID: " + err.Error()), nil, http.StatusInternalServerError
 	}
 
 	user, err := auth.GetCurrentUser(r.Context())
 	if err != nil {
-		return &APIInfo{}, errors.New("getting user: " + err.Error()), nil, http.StatusInternalServerError
+		return &APIInfo{Tx: &sqlx.Tx{}}, errors.New("getting user: " + err.Error()), nil, http.StatusInternalServerError
 	}
 	params, intParams, userErr, sysErr, errCode := AllParams(r, requiredParams, intParamNames)
 	if userErr != nil || sysErr != nil {
-		return &APIInfo{}, userErr, sysErr, errCode
+		return &APIInfo{Tx: &sqlx.Tx{}}, userErr, sysErr, errCode
 	}
 	dbCtx, _ := context.WithTimeout(r.Context(), time.Duration(cfg.DBQueryTimeoutSeconds)*time.Second) //only place we could call cancel here is in APIInfo.Close(), which already will rollback the transaction (which is all cancel will do.)
 	tx, err := db.BeginTxx(dbCtx, nil)                                                                 // must be last, MUST not return an error if this succeeds, without closing the tx
 	if err != nil {
-		return &APIInfo{}, userErr, errors.New("could not begin transaction: " + err.Error()), http.StatusInternalServerError
+		return &APIInfo{Tx: &sqlx.Tx{}}, userErr, errors.New("could not begin transaction: " + err.Error()), http.StatusInternalServerError
 	}
 	return &APIInfo{
 		Config:    cfg,
@@ -335,7 +365,21 @@ func (inf *APIInfo) Close() {
 	}
 }
 
-func getDB(ctx context.Context) (*sqlx.DB, error) {
+// APIInfoImpl implements APIInfo via the APIInfoer interface
+type APIInfoImpl struct {
+	ReqInfo *APIInfo
+}
+
+func (val *APIInfoImpl) SetInfo(inf *APIInfo) {
+	val.ReqInfo = inf
+}
+
+func (val APIInfoImpl) APIInfo() *APIInfo {
+	return val.ReqInfo
+}
+
+// GetDB returns the database from the context. This should very rarely be needed, rather `NewInfo` should always be used to get a transaction, except in extenuating circumstances.
+func GetDB(ctx context.Context) (*sqlx.DB, error) {
 	val := ctx.Value(DBContextKey)
 	if val != nil {
 		switch v := val.(type) {
@@ -348,7 +392,7 @@ func getDB(ctx context.Context) (*sqlx.DB, error) {
 	return nil, errors.New("No db found in Context")
 }
 
-func getConfig(ctx context.Context) (*config.Config, error) {
+func GetConfig(ctx context.Context) (*config.Config, error) {
 	val := ctx.Value(ConfigContextKey)
 	if val != nil {
 		switch v := val.(type) {
@@ -359,10 +403,6 @@ func getConfig(ctx context.Context) (*config.Config, error) {
 		}
 	}
 	return nil, errors.New("No config found in Context")
-}
-
-func GetConfig(ctx context.Context) (*config.Config, error) {
-	return getConfig(ctx)
 }
 
 func getReqID(ctx context.Context) (uint64, error) {
@@ -376,6 +416,19 @@ func getReqID(ctx context.Context) (uint64, error) {
 		}
 	}
 	return 0, errors.New("No ReqID found in Context")
+}
+
+// setRespWritten sets the APIRespWrittenKey key in the Context of the given Request.
+// This is used to indicate that a response has been written with an API helper, and to prevent double-write errors.
+// If an API helper which responds is called after another response helper was already called, all API helpers will log an error, and not write the second response, except HandleErr, which will write its error anyway, along with its status code.
+func setRespWritten(r *http.Request) {
+	*r = *r.WithContext(context.WithValue(r.Context(), APIRespWrittenKey, struct{}{}))
+}
+
+// respWritten gets the APIRespWrittenKey key, which indicates whether an API response helper was previously called.
+// This is used to prevent double-write errors. See setRespWritten.
+func respWritten(r *http.Request) bool {
+	return r.Context().Value(APIRespWrittenKey) != nil
 }
 
 // TypeErrToAPIErr takes a slice of errors and an ApiErrorType, and converts them to the (userErr, sysErr, errCode) idiom used by the api package.
@@ -478,4 +531,58 @@ func ParseDBError(ierr error) (error, error, int) {
 	}
 
 	return nil, err, http.StatusInternalServerError
+}
+
+// GetUserFromReq returns the current user, any user error, any system error, and an error code to be returned if either error was not nil.
+// This also uses the given ResponseWriter to refresh the cookie, if it was valid.
+func GetUserFromReq(w http.ResponseWriter, r *http.Request, secret string) (auth.CurrentUser, error, error, int) {
+	cookie, err := r.Cookie(tocookie.Name)
+	if err != nil {
+		return auth.CurrentUser{}, errors.New("Unauthorized, please log in."), errors.New("error getting cookie: " + err.Error()), http.StatusUnauthorized
+	}
+
+	if cookie == nil {
+		return auth.CurrentUser{}, errors.New("Unauthorized, please log in."), nil, http.StatusUnauthorized
+	}
+
+	oldCookie, err := tocookie.Parse(secret, cookie.Value)
+	if err != nil {
+		return auth.CurrentUser{}, errors.New("Unauthorized, please log in."), errors.New("error parsing cookie: " + err.Error()), http.StatusUnauthorized
+	}
+
+	username := oldCookie.AuthData
+	if username == "" {
+		return auth.CurrentUser{}, errors.New("Unauthorized, please log in."), nil, http.StatusUnauthorized
+	}
+	db := (*sqlx.DB)(nil)
+	val := r.Context().Value(DBContextKey)
+	if val == nil {
+		return auth.CurrentUser{}, nil, errors.New("request context db missing"), http.StatusInternalServerError
+	}
+	switch v := val.(type) {
+	case *sqlx.DB:
+		db = v
+	default:
+		return auth.CurrentUser{}, nil, fmt.Errorf("request context db unknown type %T", val), http.StatusInternalServerError
+	}
+
+	cfg, err := GetConfig(r.Context())
+	if err != nil {
+		return auth.CurrentUser{}, nil, errors.New("request context config missing"), http.StatusInternalServerError
+	}
+
+	user, userErr, sysErr, code := auth.GetCurrentUserFromDB(db, username, time.Duration(cfg.DBQueryTimeoutSeconds)*time.Second)
+	if userErr != nil || sysErr != nil {
+		return auth.CurrentUser{}, userErr, sysErr, code
+	}
+
+	newCookieVal := tocookie.Refresh(oldCookie, secret)
+	http.SetCookie(w, &http.Cookie{Name: tocookie.Name, Value: newCookieVal, Path: "/", HttpOnly: true})
+	return user, nil, nil, http.StatusOK
+}
+
+func AddUserToReq(r *http.Request, u auth.CurrentUser) {
+	ctx := r.Context()
+	ctx = context.WithValue(ctx, auth.CurrentUserKey, u)
+	*r = *r.WithContext(ctx)
 }

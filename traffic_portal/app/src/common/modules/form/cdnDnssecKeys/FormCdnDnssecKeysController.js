@@ -19,8 +19,11 @@
 
 var FormCdnDnssecKeysController = function(cdn, dnssecKeys, $scope, $location, $uibModal, dateUtils, formUtils, stringUtils, locationUtils, messageModel) {
 
-	var generate = function() {
+	$scope.generate = function() {
 		$location.path($location.path() + '/generate');
+	};
+	$scope.regenerateKSK = function() {
+		$location.path($location.path() + '/regenerateKsk');
 	};
 
 	$scope.cdn = cdn;
@@ -40,36 +43,6 @@ var FormCdnDnssecKeysController = function(cdn, dnssecKeys, $scope, $location, $
 		return label;
 	};
 
-	$scope.confirmGenerate = function() {
-		var title = 'Generate DNSSEC Keys [ ' + cdn.name + ' ]',
-			msg = 'This will generate DNSSEC keys for the ' + cdn.name + ' CDN and all associated Delivery Services.<br><br>Are you sure you want to proceed?';
-
-		if ($scope.ksk_new) {
-			title = 'Regenerate DNSSEC Keys [ ' + cdn.name + ' ]';
-			msg = 'This will regenerate DNSSEC keys for the ' + cdn.name + ' CDN and all associated Delivery Services. A new DS Record will be created and needs to be added to the parent zone in order for DNSSEC to work properly.<br><br>Are you sure you want to proceed?';
-		}
-
-		var params = {
-			title: title,
-			message: msg
-		};
-		var modalInstance = $uibModal.open({
-			templateUrl: 'common/modules/dialog/confirm/dialog.confirm.tpl.html',
-			controller: 'DialogConfirmController',
-			size: 'md',
-			resolve: {
-				params: function () {
-					return params;
-				}
-			}
-		});
-		modalInstance.result.then(function() {
-			generate();
-		}, function () {
-			messageModel.setMessages([ { level: 'warning', text: title + ' cancelled' } ], false);
-		});
-	};
-
 	$scope.dateFormat = dateUtils.dateFormat;
 
 	$scope.navigateToPath = locationUtils.navigateToPath;
@@ -79,7 +52,7 @@ var FormCdnDnssecKeysController = function(cdn, dnssecKeys, $scope, $location, $
 	$scope.hasPropertyError = formUtils.hasPropertyError;
 
 	var init = function() {
-		if (dnssecKeys[cdn.name]) {
+		if (dnssecKeys && dnssecKeys[cdn.name]) {
 			$scope.ksk_new = _.find(dnssecKeys[cdn.name].ksk, function(ksk) { return ksk.status == 'new' });
 		}
 	};

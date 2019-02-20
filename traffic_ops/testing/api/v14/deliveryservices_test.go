@@ -17,35 +17,18 @@ package v14
 
 import (
 	"strconv"
+	"testing"
 
 	"github.com/apache/trafficcontrol/lib/go-log"
 	"github.com/apache/trafficcontrol/lib/go-tc"
-	"testing"
 )
 
 func TestDeliveryServices(t *testing.T) {
-	CreateTestCDNs(t)
-	CreateTestTypes(t)
-	CreateTestProfiles(t)
-	CreateTestStatuses(t)
-	CreateTestDivisions(t)
-	CreateTestRegions(t)
-	CreateTestPhysLocations(t)
-	CreateTestCacheGroups(t)
-	CreateTestServers(t)
-	CreateTestDeliveryServices(t)
-	UpdateTestDeliveryServices(t)
-	GetTestDeliveryServices(t)
-	DeleteTestDeliveryServices(t)
-	DeleteTestServers(t)
-	DeleteTestCacheGroups(t)
-	DeleteTestPhysLocations(t)
-	DeleteTestRegions(t)
-	DeleteTestDivisions(t)
-	DeleteTestStatuses(t)
-	DeleteTestProfiles(t)
-	DeleteTestTypes(t)
-	DeleteTestCDNs(t)
+	WithObjs(t, []TCObj{CDNs, Types, Tenants, Parameters, Profiles, Statuses, Divisions, Regions, PhysLocations, CacheGroups, Servers, DeliveryServices}, func() {
+		UpdateTestDeliveryServices(t)
+		UpdateNullableTestDeliveryServices(t)
+		GetTestDeliveryServices(t)
+	})
 }
 
 func CreateTestDeliveryServices(t *testing.T) {
@@ -58,50 +41,12 @@ func CreateTestDeliveryServices(t *testing.T) {
 	}
 	_, _, err := TOSession.CreateParameter(pl)
 	if err != nil {
-		t.Fatalf("cannot create parameter: %v\n", err)
+		t.Errorf("cannot create parameter: %v\n", err)
 	}
 	for _, ds := range testData.DeliveryServices {
-		respCDNs, _, err := TOSession.GetCDNByName(ds.CDNName)
-		if err != nil {
-			t.Fatalf("cannot GET CDN - %v\n", err)
-		}
-		if len(respCDNs) < 1 {
-			t.Fatalf("cannot GET CDN - no CDNs\n")
-		}
-		ds.CDNID = respCDNs[0].ID
-
-		respTypes, _, err := TOSession.GetTypeByName(string(ds.Type))
-		if err != nil {
-			t.Fatalf("cannot GET Type by name: %v\n", err)
-		}
-		if len(respTypes) < 1 {
-			t.Fatalf("cannot GET Type - no Types\n")
-		}
-		ds.TypeID = respTypes[0].ID
-
-		if ds.ProfileName != "" {
-			respProfiles, _, err := TOSession.GetProfileByName(ds.ProfileName)
-			if err != nil {
-				t.Fatalf("cannot GET Profile by name: %v\n", err)
-			}
-			if len(respProfiles) < 1 {
-				t.Fatalf("cannot GET Profile - no Profiles\n")
-			}
-			ds.ProfileID = respProfiles[0].ID
-		}
-
-		respTenants, _, err := TOSession.Tenants()
-		if err != nil {
-			t.Fatalf("cannot GET tenants: %v\n", err)
-		}
-		if len(respTenants) < 1 {
-			t.Fatalf("cannot GET tenants: no tenants returned from Traffic Ops\n")
-		}
-		ds.TenantID = respTenants[0].ID
-
 		_, err = TOSession.CreateDeliveryService(&ds)
 		if err != nil {
-			t.Fatalf("could not CREATE delivery service '%s': %v\n", ds.XMLID, err)
+			t.Errorf("could not CREATE delivery service '%s': %v\n", ds.XMLID, err)
 		}
 	}
 }
@@ -110,7 +55,7 @@ func GetTestDeliveryServices(t *testing.T) {
 	failed := false
 	actualDSes, _, err := TOSession.GetDeliveryServices()
 	if err != nil {
-		t.Fatalf("cannot GET DeliveryServices: %v - %v\n", err, actualDSes)
+		t.Errorf("cannot GET DeliveryServices: %v - %v\n", err, actualDSes)
 		failed = true
 	}
 	actualDSMap := map[string]tc.DeliveryService{}
@@ -135,7 +80,7 @@ func UpdateTestDeliveryServices(t *testing.T) {
 	dses, _, err := TOSession.GetDeliveryServices()
 	if err != nil {
 		failed = true
-		t.Fatalf("cannot GET Delivery Services: %v\n", err)
+		t.Errorf("cannot GET Delivery Services: %v\n", err)
 	}
 
 	remoteDS := tc.DeliveryService{}
@@ -149,13 +94,14 @@ func UpdateTestDeliveryServices(t *testing.T) {
 	}
 	if !found {
 		failed = true
-		t.Fatalf("GET Delivery Services missing: %v\n", firstDS.XMLID)
+		t.Errorf("GET Delivery Services missing: %v\n", firstDS.XMLID)
 	}
 
 	updatedLongDesc := "something different"
 	updatedMaxDNSAnswers := 164598
 	remoteDS.LongDesc = updatedLongDesc
 	remoteDS.MaxDNSAnswers = updatedMaxDNSAnswers
+	remoteDS.MatchList = nil // verify that this field is optional in a PUT request, doesn't cause nil dereference panic
 
 	if updateResp, err := TOSession.UpdateDeliveryService(strconv.Itoa(remoteDS.ID), &remoteDS); err != nil {
 		t.Errorf("cannot UPDATE DeliveryService by ID: %v - %v\n", err, updateResp)
@@ -165,11 +111,11 @@ func UpdateTestDeliveryServices(t *testing.T) {
 	resp, _, err := TOSession.GetDeliveryService(strconv.Itoa(remoteDS.ID))
 	if err != nil {
 		failed = true
-		t.Fatalf("cannot GET Delivery Service by ID: %v - %v\n", remoteDS.XMLID, err)
+		t.Errorf("cannot GET Delivery Service by ID: %v - %v\n", remoteDS.XMLID, err)
 	}
 	if resp == nil {
 		failed = true
-		t.Fatalf("cannot GET Delivery Service by ID: %v - nil\n", remoteDS.XMLID)
+		t.Errorf("cannot GET Delivery Service by ID: %v - nil\n", remoteDS.XMLID)
 	}
 
 	if resp.LongDesc != updatedLongDesc || resp.MaxDNSAnswers != updatedMaxDNSAnswers {
@@ -182,12 +128,75 @@ func UpdateTestDeliveryServices(t *testing.T) {
 	}
 }
 
+func UpdateNullableTestDeliveryServices(t *testing.T) {
+	failed := false
+	firstDS := testData.DeliveryServices[0]
+
+	dses, _, err := TOSession.GetDeliveryServicesNullable()
+	if err != nil {
+		failed = true
+		t.Fatalf("cannot GET Delivery Services: %v\n", err)
+	}
+
+	remoteDS := tc.DeliveryServiceNullable{}
+	found := false
+	for _, ds := range dses {
+		if ds.XMLID == nil || ds.ID == nil {
+			continue
+		}
+		if *ds.XMLID == firstDS.XMLID {
+			found = true
+			remoteDS = ds
+			break
+		}
+	}
+	if !found {
+		failed = true
+		t.Fatalf("GET Delivery Services missing: %v\n", firstDS.XMLID)
+	}
+
+	updatedLongDesc := "something else different"
+	updatedMaxDNSAnswers := 164599
+	remoteDS.LongDesc = &updatedLongDesc
+	remoteDS.MaxDNSAnswers = &updatedMaxDNSAnswers
+
+	if updateResp, err := TOSession.UpdateDeliveryServiceNullable(strconv.Itoa(*remoteDS.ID), &remoteDS); err != nil {
+		t.Fatalf("cannot UPDATE DeliveryService by ID: %v - %v\n", err, updateResp)
+	}
+
+	// Retrieve the server to check rack and interfaceName values were updated
+	resp, _, err := TOSession.GetDeliveryServiceNullable(strconv.Itoa(*remoteDS.ID))
+	if err != nil {
+		failed = true
+		t.Fatalf("cannot GET Delivery Service by ID: %v - %v\n", remoteDS.XMLID, err)
+	}
+	if resp == nil {
+		failed = true
+		t.Fatalf("cannot GET Delivery Service by ID: %v - nil\n", remoteDS.XMLID)
+	}
+
+	if resp.LongDesc == nil || resp.MaxDNSAnswers == nil {
+		failed = true
+		t.Errorf("results do not match actual: %v, expected: %s\n", resp.LongDesc, updatedLongDesc)
+		t.Fatalf("results do not match actual: %v, expected: %d\n", resp.MaxDNSAnswers, updatedMaxDNSAnswers)
+	}
+
+	if *resp.LongDesc != updatedLongDesc || *resp.MaxDNSAnswers != updatedMaxDNSAnswers {
+		failed = true
+		t.Errorf("results do not match actual: %s, expected: %s\n", *resp.LongDesc, updatedLongDesc)
+		t.Fatalf("results do not match actual: %d, expected: %d\n", *resp.MaxDNSAnswers, updatedMaxDNSAnswers)
+	}
+	if !failed {
+		log.Debugln("UpdateNullableTestDeliveryServices() PASSED: ")
+	}
+}
+
 func DeleteTestDeliveryServices(t *testing.T) {
 	dses, _, err := TOSession.GetDeliveryServices()
 	failed := false
 	if err != nil {
 		failed = true
-		t.Fatalf("cannot GET Servers: %v\n", err)
+		t.Errorf("cannot GET Servers: %v\n", err)
 	}
 	for _, testDS := range testData.DeliveryServices {
 		ds := tc.DeliveryService{}
@@ -201,7 +210,7 @@ func DeleteTestDeliveryServices(t *testing.T) {
 		}
 		if !found {
 			failed = true
-			t.Fatalf("DeliveryService not found in Traffic Ops: %v\n", ds.XMLID)
+			t.Errorf("DeliveryService not found in Traffic Ops: %v\n", ds.XMLID)
 		}
 
 		delResp, err := TOSession.DeleteDeliveryService(strconv.Itoa(ds.ID))

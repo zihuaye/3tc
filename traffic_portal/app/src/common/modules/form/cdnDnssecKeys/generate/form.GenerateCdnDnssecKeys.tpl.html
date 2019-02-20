@@ -23,12 +23,13 @@ under the License.
             <li><a ng-click="navigateToPath('/cdns')">CDNs</a></li>
             <li><a ng-click="navigateToPath('/cdns/' + cdn.id)">{{cdn.name}}</a></li>
             <li><a ng-click="navigateToPath('/cdns/' + cdn.id + '/dnssec-keys')">DNSSEC Keys</a></li>
-            <li class="active">generate</li>
+            <li class="active">Generate</li>
         </ol>
         <div class="clearfix"></div>
     </div>
     <div class="x_content">
         <br>
+        <div class="col-md-2 col-sm-2 col-xs-12"></div><div class="dnssec-info-text col-md-10 col-sm-10 col-xs-12">{{msg}}</div>
         <form name="cdnGenerateDnssecKeysForm" class="form-horizontal form-label-left" novalidate>
             <div class="form-group">
                 <label class="control-label col-md-2 col-sm-2 col-xs-12">CDN *</label>
@@ -55,14 +56,28 @@ under the License.
             <div class="form-group" ng-class="{'has-error': hasError(cdnGenerateDnssecKeysForm.effectiveDate), 'has-feedback': hasError(cdnGenerateDnssecKeysForm.effectiveDate)}">
                 <label class="control-label col-md-2 col-sm-2 col-xs-12">Effective Date (UTC) *</label>
                 <div class="col-md-10 col-sm-10 col-xs-12">
-                    <input name="effectiveDate" type="text" class="form-control" ng-model="dnssecKeysRequest.effectiveDate" required autofocus>
+                    <input class="form-control"
+                           placeholder="Select a date..."
+                           moment-picker="effectiveDate"
+                           format="YYYY-MM-DD HH:mm:ss"
+                           start-view="month"
+                           today="true"
+                           name="effectiveDate"
+                           type="text"
+                           ng-model="effectiveDate"
+                           ng-model-options="{ updateOn: 'blur' }"
+                           ng-pattern="/^[0-9\:\-\ ]+$/"
+                           change="ctrl.zeroSeconds()"
+                           required
+                           autofocus>
                     <small class="input-error" ng-show="hasPropertyError(cdnGenerateDnssecKeysForm.effectiveDate, 'required')">Required</small>
+                    <small class="input-error" ng-show="hasPropertyError(cdnGenerateDnssecKeysForm.effectiveDate, 'pattern')">Invalid date format (YYYY-MM-DD HH:mm:ss)</small>
                     <span ng-show="hasError(cdnGenerateDnssecKeysForm.effectiveDate)" class="form-control-feedback"><i class="fa fa-times"></i></span>
                 </div>
             </div>
 
             <div class="modal-footer">
-                <button type="button" class="btn btn-success" ng-disabled="cdnGenerateDnssecKeysForm.$invalid" ng-click="confirmGenerate()">Generate</button>
+                <button type="button" class="btn btn-success" ng-disabled="cdnGenerateDnssecKeysForm.$invalid" ng-click="confirmGenerate()">Regenerate</button>
             </div>
         </form>
     </div>

@@ -39,6 +39,11 @@ do
 	if [[ -z $$v ]]; then echo "$v is unset"; exit 1; fi
 done
 
+set-dns.sh
+insert-self-into-dns.sh
+
+set-to-ips-from-dns.sh
+
 # Source to-access functions and FQDN vars
 source /to-access.sh
 
@@ -48,7 +53,7 @@ source /generate-certs.sh
 # copy contents of /ca to /export/ssl
 # update the permissions 
 mkdir -p "$X509_CA_PERSIST_DIR" && chmod 777 "$X509_CA_PERSIST_DIR"
-find "$X509_CA_PERSIST_DIR" -type f -exec chmod a+rw '{}' \;
+chmod -R a+rw "$X509_CA_PERSIST_DIR"
 
 if [ -r "$X509_CA_PERSIST_ENV_FILE" ] ; then
   umask $X509_CA_UMASK 
@@ -72,8 +77,10 @@ elif x509v3_init; then
     sync
     echo "GENERATE CERTS FROM $X509_CA_DIR to $X509_CA_PERSIST_DIR"
     sleep 4
-    find "$X509_CA_PERSIST_DIR" -type f -exec chmod a+rw '{}' \;
 fi
+
+chown -R trafops:trafops "$X509_CA_PERSIST_DIR"
+chmod -R a+rw "$X509_CA_PERSIST_DIR"
 
 # Write config files
 set -x

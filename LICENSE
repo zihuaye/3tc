@@ -260,6 +260,11 @@ For the jsdiff component:
 @traffic_portal/app/src/assets/js/jsdiff-min_3.5.0.js
 ./licenses/BSD-jsdiff
 
+For the angular-moment-picker component:
+@traffic_portal/app/src/assets/css/angular-moment-picker_0.10.2.css
+@traffic_portal/app/src/assets/js/moment-picker/angular-moment-picker.min_0.10.2.js
+./licenses/MIT-angular_moment_picker
+
 For the Chart.js component:
 @traffic_portal/app/src/assets/js/chartjs/Chart.min_2.7.2.js
 ./licenses/MIT-chartjs
@@ -299,6 +304,11 @@ For the stoppableListener component:
 For the fsnotify component:
 @vendor/gopkg.in/fsnotify.v1/*
 ./vendor/gopkg.in/fsnotify.v1/LICENSE
+
+For the yaml component:
+@vendor/gopkg.in/yaml.v2/*
+./vendor/gopkg.in/yaml.v2/LICENSE
+./vendor/gopkg.in/yaml.v2/LICENSE.libyaml
 
 For the jwt-go component:
 @traffic_ops/experimental/traffic_ops_auth/vendor/github.com/dgrijalva/jwt-go/*
@@ -429,3 +439,15 @@ The asn1-ber.v1 component is used under the MIT license:
 The ldap.v2 component is used under the MIT license:
 @traffic_ops/vendor/gopkg.in/ldap.v2/*
 ./traffic_ops/vendor/gopkg.in/ldap.v2/LICENSE
+
+The json-iterator/go component is used under the MIT license:
+@vendor/github.com/json-iterator/go/*
+./vendor/github.com/json-iterator/go/LICENSE
+
+The modern-go/concurrent component is used under the Apache 2.0 license:
+@vendor/github.com/modern-go/concurrent/*
+./vendor/github.com/modern-go/concurrent/LICENSE
+
+The modern-go/reflect2 component is used under the Apache 2.0 license:
+@vendor/github.com/modern-go/reflect2/*
+./vendor/github.com/modern-go/reflect2/LICENSE

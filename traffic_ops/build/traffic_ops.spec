@@ -33,7 +33,7 @@ URL:              https://github.com/apache/trafficcontrol/
 Vendor:           Apache Software Foundation
 Packager:         daniel_kirkwood at Cable dot Comcast dot com
 AutoReqProv:      no
-Requires:         cpanminus, expat-devel, gcc-c++, golang = 1.9.4, libcurl, libpcap-devel, mkisofs, tar
+Requires:         cpanminus, expat-devel, gcc-c++, golang >= 1.9.4, libcurl, libpcap-devel, mkisofs, tar
 Requires:         openssl-devel, perl, perl-core, perl-DBD-Pg, perl-DBI, perl-Digest-SHA1
 Requires:         libidn-devel, libcurl-devel, libcap
 Requires:         postgresql96 >= 9.6.2 , postgresql96-devel >= 9.6.2
@@ -44,7 +44,10 @@ Requires(postun): /usr/sbin/userdel
 %define PACKAGEDIR %{prefix}
 
 %description
-Installs Traffic Ops.
+Traffic Ops is the tool for administration (configuration and monitoring) of all components in a Traffic Control CDN.
+
+This package provides Traffic Ops with the following plugins:
+%{getenv:PLUGINS}
 
 Built: %(date) by %{getenv: USER}
 
@@ -111,6 +114,16 @@ Built: %(date) by %{getenv: USER}
       go build -ldflags "-X main.version=traffic_ops-%{version}-%{release} -B 0x`git rev-parse HEAD`" \
     ) || { echo "Could not build go program at $(pwd): $!"; exit 1; }
 
+    # build TO DB admin
+    db_admin_dir=src/github.com/apache/trafficcontrol/traffic_ops/app/db
+    ( mkdir -p "$db_admin_dir" && \
+      cd "$db_admin_dir" && \
+      cp -r "$TC_DIR"/traffic_ops/app/db/* . && \
+      echo "go building at $(pwd)" && \
+      go get -v &&\
+      go build -o admin \
+    ) || { echo "Could not build go db admin at $(pwd): $!"; exit 1; };
+
     # build TO profile converter
     convert_dir=src/github.com/apache/trafficcontrol/traffic_ops/install/bin/convert_profile
     ( mkdir -p "$convert_dir" && \
@@ -149,6 +162,10 @@ Built: %(date) by %{getenv: USER}
 
     src=src/github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang
     %__cp -p  "$src"/traffic_ops_golang        "${RPM_BUILD_ROOT}"/opt/traffic_ops/app/bin/traffic_ops_golang
+
+    db_admin_src=src/github.com/apache/trafficcontrol/traffic_ops/app/db
+    %__cp -p  "$db_admin_src"/admin           "${RPM_BUILD_ROOT}"/opt/traffic_ops/app/db/admin
+    %__rm $RPM_BUILD_ROOT/%{PACKAGEDIR}/app/db/*.go
 
     convert_profile_src=src/github.com/apache/trafficcontrol/traffic_ops/install/bin/convert_profile
     %__cp -p  "$convert_profile_src"/convert_profile           "${RPM_BUILD_ROOT}"/opt/traffic_ops/install/bin/convert_profile
@@ -208,7 +225,7 @@ Built: %(date) by %{getenv: USER}
     if [ "$1" == "2" ]; then
         echo -e "\n\nTo complete the update, perform the following steps:\n"
         echo -e "1. If any *.rpmnew files are in /opt/traffic_ops/...,  reconcile with any local changes\n"
-        echo -e "2. Run 'PERL5LIB=/opt/traffic_ops/app/lib:/opt/traffic_ops/app/local/lib/perl5 ./db/admin.pl --env production upgrade'\n"
+        echo -e "2. Run './db/admin --env production upgrade'\n"
         echo -e "   from the /opt/traffic_ops/app directory.\n"
         echo -e "To start Traffic Ops:  systemctl start traffic_ops\n";
         echo -e "To stop Traffic Ops:   systemctl stop traffic_ops\n\n";
@@ -248,6 +265,7 @@ fi
 %{PACKAGEDIR}/app/public
 %{PACKAGEDIR}/app/templates
 %{PACKAGEDIR}/install
+%attr(755, %{TRAFFIC_OPS_USER},%{TRAFFIC_OPS_GROUP}) %{PACKAGEDIR}/app/db/admin
 %attr(755, %{TRAFFIC_OPS_USER},%{TRAFFIC_OPS_GROUP}) %{PACKAGEDIR}/install/bin/convert_profile/convert_profile
 %{PACKAGEDIR}/etc
 %doc %{PACKAGEDIR}/doc

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -16,13 +17,15 @@
 # specific language governing permissions and limitations
 # under the License.
 
+set-dns.sh
+insert-self-into-dns.sh
+
 . /to-access.sh
 
 TO_URL=https://${TO_FQDN}:${TO_PORT}
 TO_USER=$TV_USER
 TO_PASSWORD=$TV_PASSWORD
 
-# TODO: Fix Traffic Vault Enrollment
-#to-enroll "tv" ALL || (while true; do echo "enroll failed."; sleep 3 ; done)
+to-enroll "tv" ALL "" "8088" "8088" || (while true; do echo "enroll failed."; sleep 3 ; done)
 
 ${RIAK_HOME}/riak-cluster.sh

@@ -64,6 +64,12 @@ const (
 	CacheTypeInvalid = CacheType("")
 )
 
+const MonitorTypeName = "RASCAL"
+const MonitorProfilePrefix = "RASCAL"
+const RouterTypeName = "CCR"
+const EdgeTypePrefix = "EDGE"
+const MidTypePrefix = "MID"
+
 func (c CacheName) String() string {
 	return string(c)
 }
@@ -136,6 +142,8 @@ func DSTypeCategoryFromString(s string) DSTypeCategory {
 		return DSTypeCategoryInvalid
 	}
 }
+
+const SigningAlgorithmURLSig = "url_sig"
 
 // CacheStatus represents the Traffic Server status set in Traffic Ops (online, offline, admin_down, reported). The string values of this type should match the Traffic Ops values.
 type CacheStatus string

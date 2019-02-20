@@ -21,15 +21,233 @@ Readiness Test - which was originally written in a single, chickenscratch
 Perl script. When the :func:`main` function is run, it acts (more or less)
 exactly like that legacy script, with the ability to set system configuration
 files and start, stop, and restart HTTP cache servers etc.
+
+.. program:: traffic_ops_ort
+
+This package provides an executable script named :program:`traffic_ops_ort`
+
+Usage
+=====
+There are two main ways to invoke :program:`traffic_ops_ort`. The first method uses what's referred
+to as the "legacy call signature" and is meant to match the Perl command line arguments.
+
+.. code-block:: text
+	:caption: Legacy Call Signature
+
+	traffic_ops_ort [-k] [-h] [-v] [--dispersion DISP] [--login_dispersion DISP]
+	         [--retries RETRIES] [--wait_for_parents INT] [--rev_proxy_disable]
+	         [--ts_root PATH] MODE LOG_LEVEL TO_URL LOGIN``
+
+The second method - called the "new call signature" - aims to reduce the complexity of the
+:term:`ORT` command line. Rather than require a URL and "login string" for connecting and
+authenticating with the Traffic Ops server, these pieces of information are optional and may be
+provided by the :option:`--to_url`, :option:`-u`/:option:`--to_user`, and
+:option:`-p`/:option:`--password` options, respectively. If they are NOT provided, then their values
+will be obtained from the :envvar:`TO_URL`, :envvar:`TO_USER`, and :envvar:`TO_PASSWORD` environment
+variables, respectively. Note that :program:`traffic_ops_ort` cannot be run using the new call
+signature without providing a definition for each of these, either on the command line or in the
+execution environment.
+
+.. code-block:: text
+	:caption: New call signature
+
+	traffic_ops_ort [-k] [-h] [-v] [--dispersion DISP] [--login_dispersion DISP]
+	     [--retries RETRIES] [--wait_for_parents INT] [--rev_proxy_disable]
+	     [--ts_root PATH] [-l LOG_LEVEL] [-u USER] [-p PASSWORD] [--to_url URL] MODE
+
+These two call signatures should not be mixed, and :program:`traffic_ops_ort` will exit with an
+error if they are.
+
+Arguments and Flags
+-------------------
+.. option:: -h, --help
+
+	Print usage information and exit
+
+.. option:: -v, --version
+
+	Print version information and exit
+
+.. option:: -k, --insecure
+
+	An optional flag which, when used, disables the checking of SSL certificates for validity
+
+.. option:: --dispersion DISP
+
+	Wait a random number between 0 and ``DISP`` seconds before starting. This option *only* has any
+	effect if :option:`MODE` is ``SYNCDS``. (Default: 300)
+
+.. option:: --login_dispersion DISP
+
+	Wait a random number between 0 and ``DISP`` seconds before authenticating with Traffic Ops.
+	(Default: 0)
+
+.. option:: --retries RETRIES
+
+	If connection to Traffic Ops fails, retry ``RETRIES`` times before giving up (Default: 3).
+
+.. option:: --wait_for_parents INT
+
+	If ``INT`` is anything but 0, do not apply updates if parents of this server have pending
+	updates. This option requires an integer argument for legacy compatibility reasons; 0 is
+	considered ``False``, anything else is ``True``. (Default: 1)
+
+.. option:: --rev_prox_disable
+
+	Make requests directly to the Traffic Ops server, bypassing a reverse proxy if one exists.
+
+.. option:: --ts_root PATH
+
+	An optional flag which, if present, specifies the absolute path to the install directory of
+	Apache Traffic Server. A common alternative to the default is ``/opt/trafficserver``.
+	(Default: ``/``)
+
+.. option:: MODE
+
+	Specifies :program:`traffic_ops_ort`'s mode of operation. Must be one of:
+
+	REPORT
+		Runs as though the mode was BADASS, but doesn't actually change anything on the system.
+
+		.. tip:: This is normally useful with a verbose :option:`LOG_LEVEL` to check the state of
+			the system
+
+	INTERACTIVE
+		Runs as though the mode was BADASS, but asks the user for confirmation before making changes
+	REVALIDATE
+		Will not restart Apache Traffic Server, install packages, or enable/disable system services
+		and will exit immediately if this server does not have revalidations pending. Otherwise, the
+		same as BADASS.
+	SYNCDS
+		Will not restart Apache Traffic Server, and will exit immediately if this server does not
+		have updates pending. Otherwise, the same as BADASS
+	BADASS
+		Applies all pending configuration in Traffic Ops, and attempts to solve encountered problems
+		when possible. This will install packages, enable/disable system services, and will start or
+		restart Apache Traffic Server as necessary.
+
+.. option:: LOG_LEVEL, -l LOG_LEVEL, --log_level LOG_LEVEL
+
+	Sets the verbosity of output provided by :program:`traffic_ops_ort`. This argument is positional
+	in the legacy call signature, but optional in the new call signature, wherein it has a default
+	value of "WARN". Must be one of (case-insensitive):
+
+	NONE
+		Will output nothing, not even fatal errors.
+	CRITICAL
+		Will only output error messages that indicate an unrecoverable error.
+	FATAL
+		A synonym for "CRITICAL"
+	ERROR
+		Will output more general errors about conditions that are causing problems of some kind.
+	WARN
+		In addition to error information, will output warnings about conditions that may cause
+		problems, or possible misconfiguration.
+	INFO
+		Outputs informational messages about what :program:`traffic_ops_ort` is doing as it
+		progresses.
+	DEBUG
+		Outputs detailed debug information, including stack traces.
+
+		.. note:: Not all stack traces indicate problems with :program:`traffic_ops_ort`. Stack
+			traces are printed whenever an exception is encountered, whether or not it could be
+			handled.
+
+	TRACE
+		A synonym for "DEBUG"
+	ALL
+		A synonym for "DEBUG"
+
+	.. note:: All logging is sent to STDERR. INTERACTIVE :option:`MODE` prompts are printed to STDOUT
+
+.. option:: TO_URL, --to_url TO_URL
+
+	This must be at minimum an :abbr:`FQDN (Fully Qualified Domain Name)` that resolves to the
+	Traffic Ops server, but may optionally include the schema and/or port number. E.g.
+	``https://trafficops.infra.ciab.test:443``, ``https://trafficops.infra.ciab.test``,
+	``trafficops.infra.ciab.test:443``, and ``trafficops.infra.ciab.test`` are all acceptable, and
+	in fact are all equivalent. When given a value without a schema, HTTPS will be the assumed
+	protocol, and when a port number is not present, 443 will be assumed except in the case that
+	the schema *is* provided and is ``http://`` (case-insensitive) in which case 80 will be assumed.
+
+	This argument is positional in the legacy call signature, but is optional in the new call
+	signature. When the new call signature is used and this option is not present on the command
+	line, its value will be obtained from :envvar:`TO_URL`. Note that :program:`traffic_ops_ort`
+	cannot be run using the new call signature unless this value is defined, either on the command
+	line or in the execution environment.
+
+.. option:: LOGIN
+
+	The information used to authenticate with Traffic Ops. This must consist of a username and a
+	password, delimited by a colon (``:``). E.g. ``admin:twelve``. This argument is not used in the
+	new call signature, instead :option:`-u`/:option:`--to_user` and
+	:option:`-p`/:option:`--to_password` are used to separately set the authentication user and
+	password, respectively.
+
+	.. warning:: The first colon found in this string is considered the delimiter. There is no way
+		to escape the delimeter. This effectively means that usernames containing colons cannot be
+		used to authenticate with Traffic Ops, though passwords containing colons should be fine.
+
+.. option:: -u USER, --to_user USER
+
+	Specifies the username of the user as whom to authenticate when connecting to Traffic Ops. This
+	option is only available using the new call signature. If not provided when using said new call
+	signature, the value will be obtained from the :envvar:`TO_USER` environment variable. Note that
+	:program:`traffic_ops_ort` cannot be run using the new call signature unless this value is
+	defined, either on the command line or in the execution environment.
+
+.. option:: -p PASSWORD, --to_password PASSWORD
+
+	Specifies the password of the user identified by :envvar:`TO_USER` (or
+	:option:`-u`/:option:`--to_user` if overridden) to use when authenticating to Traffic Ops. This
+	option is only available using the new call signature. If not provided when using said new call
+	signature, the value will be obtained from the :envvar:`TO_PASSWORD`  environment variable. Note
+	that :program:`traffic_ops_ort` cannot be run using the new call signature unless this value is
+	defined, either on the command line or in the execution environment.
+
+Environment Variables
+---------------------
+.. envvar:: TO_URL
+
+	Should be set to the URL of a Traffic Ops server. This doesn't need to be a full URL, an
+	:abbr:`FQDN (Fully Qualified Domain Name)` will do just as well. It may also omit the port
+	number on which the Traffic Ops server listens for incoming connections - port 443 will be
+	assumed unless :envvar:`TO_URL` is prefixed by ``http://`` (case-insensitive), in which case
+	port 80 will be assumed. The value of this environment variable will only be considered if
+	:program:`traffic_ops_ort` was invoked using the new call signature, which allows it to be
+	overridden on the command line by the value of :option:`--to_url`.
+
+.. envvar:: TO_USER
+
+	The username to use when authenticating to the Traffic Ops server. The value of this environment
+	variable will only be considered if :program:`traffic_ops_ort` was invoked using the new call
+	signature, which allows it to be overridden on the command line by the value of
+	:option:`-u`/:option:`--to_user`.
+
+.. envvar:: TO_PASSWORD
+
+	The password to use when authenticating to the Traffic Ops server. The value of this environment
+	variable will only be considered if :program:`traffic_ops_ort` was invoked using the new call
+	signature, which allows it to be overridden on the command line by the value of
+	:option:`-p`/:option:`--to_password`.
+
+Module Contents
+===============
 """
 
-__version__ = "0.0.2"
+__version__ = "0.1.0"
 __author__  = "Brennan Fieck"
 
 import argparse
 import datetime
-import sys
 import logging
+import os
+import random
+import sys
+import time
+
+from requests.exceptions import RequestException
+from trafficops.restapi import LoginError, OperationError, InvalidJSONError
 
 def doMain(args:argparse.Namespace) -> int:
 	"""
@@ -39,69 +257,107 @@ def doMain(args:argparse.Namespace) -> int:
 	:returns: an exit code for the script.
 	:raises AttributeError: when the namespace is missing required arguments
 	"""
-	from . import configuration
+	from . import configuration, main_routines, to_api
+	random.seed(time.time())
 
-	if not configuration.setLogLevel(args.Log_Level):
-		print("Unrecognized log level:", args.Log_Level, file=sys.stderr)
+	try:
+		conf = configuration.Configuration(args)
+	except ValueError as e:
+		logging.critical(e)
+		logging.debug("%r", e, exc_info=True, stack_info=True)
 		return 1
 
-	logging.info("Distribution detected as: '%s'", configuration.DISTRO)
-	logging.info("Hostname detected as: '%s'", configuration.HOSTNAME[1])
+	if conf.login_dispersion:
+		disp = random.randint(0, conf.login_dispersion)
+		logging.info("Login dispersion is active - sleeping for %d seconds before continuing", disp)
+		time.sleep(disp)
 
-	if not configuration.setMode(args.Mode):
-		logging.critical("Unrecognized Mode: %s", args.Mode)
+	try:
+		with to_api.API(conf) as api:
+			conf.api = api
+			return main_routines.run(conf)
+	except (LoginError, OperationError, InvalidJSONError, RequestException) as e:
+		logging.critical("Failed to connect and authenticate with the Traffic Ops server")
+		logging.error(e)
+		logging.debug("%r", e, exc_info=True, stack_info=True)
 		return 1
 
-	logging.info("Running in %s mode", configuration.MODE)
+_EPILOG = """traffic_ops_ort supports two calling conventions, one is intended to be fully
+compatible with the Perl implementation, while the other is intended to be an improvement over the
+former. Essentially this means that either the `Log_Level`, `Traffic_Ops_URL` and
+`Traffic_Ops_Login`` must all be given, or none of them. If none of them are given, the log level
+will be determined by the `-l`/`--log_level` option, the Traffic Ops server URL will be constructed
+from the information available in the `TO_URL` environment and/or the `--to_url` option, the
+Traffic Ops user will be determined from the information available in the `TO_USER` environment
+variable and/or the `-u`/`--to_user` option, and the Traffic Ops user's password will be determined
+from the information available in the `TO_PASSWORD` environment variable and/or the
+`-p`/`--to_password` option.
+""".replace('\n', ' ') + "\n\n" + ("Note that passing a negative integer to options that expect "
+                                   "integers will instead set them zero.")
 
-	if not configuration.setTSRoot(args.ts_root):
-		logging.critical("Failed to set TS_ROOT, seemingly invalid path: '%s'", args.ts_root)
-		return 1
-
-	logging.info("ATS root installation directory set to: '%s'", configuration.TS_ROOT)
-
-	configuration.VERIFY = not args.insecure
-
-	if not configuration.setTOURL(args.Traffic_Ops_URL):
-		logging.critical("Malformed or invalid Traffic_Ops_URL: '%s'", args.Traffic_Ops_URL)
-		return 1
-
-	logging.info("Traffic Ops URL '%s' set and verified", configuration.TO_URL)
-
-	if not configuration.setTOCredentials(args.Traffic_Ops_Login):
-		logging.critical("Traffic Ops login credentials invalid or incorrect.")
-		return 1
-
-	logging.info("Got TO Cookie - valid until %s",
-	             datetime.datetime.fromtimestamp(configuration.TO_COOKIE.expires))
-
-	configuration.WAIT_FOR_PARENTS = args.wait_for_parents
-
-	from . import main_routines
-
-	return main_routines.run()
-
-def main():
+def main() -> int:
 	"""
 	The ORT entrypoint, parses argv before handing it off to :func:`doMain`.
+
+	:returns: An exit code for :program:`traffic_ops_ort`
 	"""
+	global _EPILOG
+
 	# I have no idea why, but the old ORT script does this on every run.
 	print(datetime.datetime.utcnow().strftime("%a %b %d %H:%M:%S UTC %Y"))
 
+	from .configuration import LogLevels, Configuration
+
+	runModesAllowed = {str(x) for x in Configuration.Modes}.union(
+	                  {str(x).lower() for x in Configuration.Modes})
+	logLevelsAllowed = {str(x) for x in LogLevels}.union({str(x).lower() for x in LogLevels})
+
 	parser = argparse.ArgumentParser(description="A Python-based TO_ORT implementation",
+	                                 epilog=_EPILOG,
 	                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
 	parser.add_argument("Mode",
 	                    help="REPORT: Do nothing, but print what would be done\n"\
-	                         "")
-	parser.add_argument("Log_Level",
+	                         "REPORT, INTERACTIVE, REVALIDATE, SYNCDS, BADASS",
+	                    choices=runModesAllowed,
+	                    type=str)
+	parser.add_argument("legacy",
 	                    help="ALL/TRACE, DEBUG, INFO, WARN, ERROR, FATAL/CRITICAL, NONE",
+	                    metavar="Log_Level",
+	                    nargs="?",
+	                    action="append",
+	                    choices=logLevelsAllowed,
 	                    type=str)
-	parser.add_argument("Traffic_Ops_URL",
+	parser.add_argument("-l", "--log_level",
+	                    help="Sets the logging level. (Default: WARN)",
+	                    type=str,
+	                    choices=logLevelsAllowed)
+	parser.add_argument("legacy",
 	                    help="URL to Traffic Ops host. Example: https://trafficops.company.net",
+	                    metavar="Traffic_Ops_URL",
+	                    nargs="?",
+	                    action="append",
 	                    type=str)
-	parser.add_argument("Traffic_Ops_Login",
-	                    help="Example: 'username:password'")
+	parser.add_argument("--to_url",
+	                    help=("A URL or hostname - optionally with a port specification - that "
+	                          "points to a Traffic Ops server. e.g. `trafficops.infra.ciab.test` or"
+	                          " `https://trafficops.infra.ciab.test:443`. This overrides the TO_URL"
+	                          " environment variable"),
+	                    type=str)
+	parser.add_argument("legacy",
+	                    help="Example: 'username:password'",
+	                    metavar="Traffic_Ops_Login",
+	                    nargs="?",
+	                    action="append",
+	                    type=str)
+	parser.add_argument("-u", "--to_user",
+	                    help=("The username to use when authenticating to the Traffic Ops server. "
+	                          "This overrides the TO_USER environment variable."),
+	                    type=str)
+	parser.add_argument("-p", "--to_password",
+	                    help=("The password to use when authenticating to the Traffic Ops server. "
+	                          "This overrides the TO_PASSWORD environment variable."),
+	                    type=str)
 	parser.add_argument("--dispersion",
 	                    help="wait a random number between 0 and <dispersion> before starting.",
 	                    type=int,
@@ -116,11 +372,11 @@ def main():
 	                    default=3)
 	parser.add_argument("--wait_for_parents",
 	                    help="do not update if parent_pending = 1 in the update json.",
-	                    action="store_true")
-	parser.add_argument("--rev_proxy_disabled",
-	                    help="bypass the reverse proxy even if one has been configured.",
 	                    type=int,
-	                    default=0)
+	                    default=1)
+	parser.add_argument("--rev_proxy_disable",
+	                    help="bypass the reverse proxy even if one has been configured.",
+	                    action="store_true")
 	parser.add_argument("--ts_root",
 	                    help="Specify the root directory at which Apache Traffic Server is installed"\
 	                         " (e.g. '/opt/trafficserver')",
@@ -135,4 +391,46 @@ def main():
 	                    version="%(prog)s v"+__version__,
 	                    help="Print version information and exit.")
 
-	exit(doMain(parser.parse_args()))
+	args = parser.parse_args()
+
+	# New call signature
+	if None in args.legacy:
+		if any(args.legacy):
+			print("Legacy mode call signature cannot be partial!", file=sys.stderr)
+			print("(Hint: use -h/--help for usage)", file=sys.stderr)
+			return 1
+
+		try:
+			args.to_url = args.to_url if args.to_url else os.environ["TO_URL"]
+			args.to_password = args.to_password if args.to_password else os.environ["TO_PASSWORD"]
+			args.to_user = args.to_user if args.to_user else os.environ["TO_USER"]
+		except KeyError as e:
+			print("Neither option nor environment variable defined for %s!" % e.args[0],
+			      file=sys.stderr)
+			print("(Hint: use -h/--help for usage)", file=sys.stderr)
+			return 1
+
+		args.log_level = args.log_level if args.log_level else "WARN"
+
+	# Illegal mixed call signature
+	elif (args.to_url is not None or
+	      args.to_user is not None or
+	      args.log_level is not None or
+	      args.to_password is not None):
+
+		print("Do not mix legacy call signature with new-style call signature!", file=sys.stderr)
+		print("(Hint: use -h/--help for usage)", file=sys.stderr)
+		return 1
+
+	# Legacy call signature
+	else:
+		args.log_level, args.to_url, login = args.legacy
+		try:
+			args.to_user, args.to_password = login.split(':')
+		except ValueError:
+			print("Invalid Traffic_Ops_Login format! Should be 'username:password'",file=sys.stderr)
+			print("(Hint: use -h/--help for usage)", file=sys.stderr)
+			return 1
+
+
+	return doMain(args)

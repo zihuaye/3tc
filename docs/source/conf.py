@@ -29,8 +29,11 @@ import os
 import sys
 here = os.path.dirname(__file__)
 ortPath = os.path.join(here, '..', '..', 'infrastructure', 'cdn-in-a-box', 'ort')
+clientPath = os.path.join(here, '..', '..', 'traffic_control', 'clients', 'python')
 ortPath = os.path.abspath(ortPath)
+clientPath = os.path.abspath(clientPath)
 sys.path.insert(0, ortPath)
+sys.path.insert(0, clientPath)
 
 # -- Custom Lexical Analyzer for DNS -----------------------------------------
 
@@ -202,6 +205,9 @@ man_pages = [
 	 [author], 1)
 ]
 
+# A format string that will be used to link to manual pages for appropriately-roled Linux utilities.
+manpages_url = "https://manpages.debian.org/{path}"
+
 
 # -- Options for Texinfo output ----------------------------------------------
 
@@ -217,3 +223,11 @@ texinfo_documents = [
 # Hopefully this will cause tab expansion to use 4 spaces rather than the
 # (GNU-supported) default of 8.
 tab_width=4
+
+# Causes floating environments to be automatically numbered when they are captioned.
+numfig = True
+numfig_format = {"figure": "Fig. %s",
+                 "table": "Table %s",
+                 "code-block": "#%s",
+                 "section": "Section"}
+numfig_secnum_depth = 0

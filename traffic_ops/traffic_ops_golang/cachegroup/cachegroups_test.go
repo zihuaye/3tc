@@ -53,6 +53,11 @@ func getTestCacheGroups() []tc.CacheGroup {
 		Type:        "EDGE_LOC",
 		TypeID:      6,
 		LastUpdated: tc.TimeNoMod{Time: time.Now()},
+		Fallbacks: []string{
+			"cachegroup2",
+			"cachegroup3",
+		},
+		FallbackToClosest: true,
 	}
 	cgs = append(cgs, testCG1)
 
@@ -79,6 +84,7 @@ func getTestCacheGroups() []tc.CacheGroup {
 }
 
 func TestReadCacheGroups(t *testing.T) {
+
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
@@ -103,6 +109,8 @@ func TestReadCacheGroups(t *testing.T) {
 		"type_name",
 		"type_id",
 		"last_updated",
+		"fallbacks",
+		"fallbackToClosest",
 	})
 
 	for _, ts := range testCGs {
@@ -120,6 +128,8 @@ func TestReadCacheGroups(t *testing.T) {
 			ts.Type,
 			ts.TypeID,
 			ts.LastUpdated,
+			[]byte("{cachegroup2,cachegroup3}"),
+			ts.FallbackToClosest,
 		)
 	}
 	mock.ExpectBegin()
@@ -127,7 +137,12 @@ func TestReadCacheGroups(t *testing.T) {
 	mock.ExpectCommit()
 
 	reqInfo := api.APIInfo{Tx: db.MustBegin(), Params: map[string]string{"id": "1"}}
-	cachegroups, userErr, sysErr, _ := GetTypeSingleton()(&reqInfo).Read()
+	obj := TOCacheGroup{
+		api.APIInfoImpl{&reqInfo},
+		tc.CacheGroupNullable{},
+	}
+	cachegroups, userErr, sysErr, _ := obj.Read()
+
 	if userErr != nil || sysErr != nil {
 		t.Errorf("Read expected: no errors, actual: %v %v", userErr, sysErr)
 	}
@@ -201,17 +216,20 @@ func TestValidate(t *testing.T) {
 	ty := "EDGE_LOC"
 	ti := 6
 	lu := tc.TimeNoMod{Time: time.Now()}
-	c := TOCacheGroup{ReqInfo: &reqInfo, CacheGroupNullable: tc.CacheGroupNullable{
-		ID:                  &id,
-		Name:                &nm,
-		ShortName:           &sn,
-		Latitude:            &la,
-		Longitude:           &lo,
-		LocalizationMethods: &lm,
-		Type:                &ty,
-		TypeID:              &ti,
-		LastUpdated:         &lu,
-	}}
+	c := TOCacheGroup{
+		api.APIInfoImpl{&reqInfo},
+		tc.CacheGroupNullable{
+			ID:                  &id,
+			Name:                &nm,
+			ShortName:           &sn,
+			Latitude:            &la,
+			Longitude:           &lo,
+			LocalizationMethods: &lm,
+			Type:                &ty,
+			TypeID:              &ti,
+			LastUpdated:         &lu,
+		},
+	}
 	errs := util.JoinErrsStr(test.SortErrors(test.SplitErrors(c.Validate())))
 
 	expectedErrs := util.JoinErrsStr([]error{
@@ -235,17 +253,20 @@ func TestValidate(t *testing.T) {
 	la = 90.0
 	lo = 90.0
 	lm = []tc.LocalizationMethod{tc.LocalizationMethodGeo, tc.LocalizationMethodCZ, tc.LocalizationMethodDeepCZ}
-	c = TOCacheGroup{ReqInfo: &reqInfo, CacheGroupNullable: tc.CacheGroupNullable{
-		ID:                  &id,
-		Name:                &nm,
-		ShortName:           &sn,
-		Latitude:            &la,
-		Longitude:           &lo,
-		LocalizationMethods: &lm,
-		Type:                &ty,
-		TypeID:              &ti,
-		LastUpdated:         &lu,
-	}}
+	c = TOCacheGroup{
+		api.APIInfoImpl{&reqInfo},
+		tc.CacheGroupNullable{
+			ID:                  &id,
+			Name:                &nm,
+			ShortName:           &sn,
+			Latitude:            &la,
+			Longitude:           &lo,
+			LocalizationMethods: &lm,
+			Type:                &ty,
+			TypeID:              &ti,
+			LastUpdated:         &lu,
+		},
+	}
 	err = c.Validate()
 	if err != nil {
 		t.Errorf("expected nil, got %s", err)

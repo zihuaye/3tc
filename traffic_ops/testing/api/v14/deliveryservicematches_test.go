@@ -16,42 +16,23 @@ package v14
 */
 
 import (
+	"testing"
+
 	"github.com/apache/trafficcontrol/lib/go-log"
 	"github.com/apache/trafficcontrol/lib/go-tc"
-	"testing"
 )
 
 func TestDeliveryServiceMatches(t *testing.T) {
-	CreateTestCDNs(t)
-	CreateTestTypes(t)
-	CreateTestProfiles(t)
-	CreateTestStatuses(t)
-	CreateTestDivisions(t)
-	CreateTestRegions(t)
-	CreateTestPhysLocations(t)
-	CreateTestCacheGroups(t)
-	CreateTestServers(t)
-	CreateTestDeliveryServices(t)
-
-	GetTestDeliveryServiceMatches(t)
-
-	DeleteTestDeliveryServices(t)
-	DeleteTestServers(t)
-	DeleteTestCacheGroups(t)
-	DeleteTestPhysLocations(t)
-	DeleteTestRegions(t)
-	DeleteTestDivisions(t)
-	DeleteTestStatuses(t)
-	DeleteTestProfiles(t)
-	DeleteTestTypes(t)
-	DeleteTestCDNs(t)
+	WithObjs(t, []TCObj{CDNs, Types, Tenants, Parameters, Profiles, Statuses, Divisions, Regions, PhysLocations, CacheGroups, Servers, DeliveryServices}, func() {
+		GetTestDeliveryServiceMatches(t)
+	})
 }
 
 func GetTestDeliveryServiceMatches(t *testing.T) {
 	log.Debugln("GetTestDeliveryServiceMatches")
 	dsMatches, _, err := TOSession.GetDeliveryServiceMatches()
 	if err != nil {
-		t.Fatalf("cannot GET DeliveryService matches: %v\n", err)
+		t.Errorf("cannot GET DeliveryService matches: %v\n", err)
 	}
 
 	dsMatchMap := map[tc.DeliveryServiceName][]string{}
@@ -60,8 +41,11 @@ func GetTestDeliveryServiceMatches(t *testing.T) {
 	}
 
 	for _, ds := range testData.DeliveryServices {
+		if ds.Type == tc.DSTypeAnyMap {
+			continue // ANY_MAP DSes don't require matchLists
+		}
 		if _, ok := dsMatchMap[tc.DeliveryServiceName(ds.XMLID)]; !ok {
-			t.Fatalf("GET DeliveryService matches missing: %v\n", ds.XMLID)
+			t.Errorf("GET DeliveryService matches missing: %v\n", ds.XMLID)
 		}
 	}
 }

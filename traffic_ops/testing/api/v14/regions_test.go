@@ -23,29 +23,16 @@ import (
 )
 
 func TestRegions(t *testing.T) {
-
-	CreateTestDivisions(t)
-	CreateTestRegions(t)
-	UpdateTestRegions(t)
-	GetTestRegions(t)
-	GetTestRegionsByNamePath(t)
-	DeleteTestRegions(t)
-	DeleteTestDivisions(t)
-
+	WithObjs(t, []TCObj{Parameters, Divisions, Regions}, func() {
+		UpdateTestRegions(t)
+		GetTestRegions(t)
+		GetTestRegionsByNamePath(t)
+	})
 }
 
 func CreateTestRegions(t *testing.T) {
 
-	// Retrieve the Division by name so we can get the ID
-	division := testData.Divisions[0]
-	resp, _, err := TOSession.GetDivisionByName(division.Name)
-	if err != nil {
-		t.Errorf("cannot GET Division by name: %v - %v\n", division.Name, err)
-	}
-	respDivision := resp[0]
-
 	for _, region := range testData.Regions {
-		region.Division = respDivision.ID
 		resp, _, err := TOSession.CreateRegion(region)
 		log.Debugln("Response: ", resp)
 		if err != nil {
@@ -104,7 +91,7 @@ func GetTestRegionsByNamePath(t *testing.T) {
 	for _, region := range testData.Regions {
 		_, _, err := TOSession.GetRegionByNamePath(region.Name)
 		if err != nil {
-			t.Fatalf("cannot GET Region by name: %v - %v\n", region.Name, err)
+			t.Errorf("cannot GET Region by name: %v - %v\n", region.Name, err)
 		}
 	}
 }

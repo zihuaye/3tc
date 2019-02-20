@@ -151,32 +151,22 @@ func randStatCommon() dsdata.StatCommon {
 	}
 }
 
-func randDsStat() dsdata.Stat {
-	num := 5
-	cacheGroups := map[tc.CacheGroupName]dsdata.StatCacheStats{}
-	types := map[tc.CacheType]dsdata.StatCacheStats{}
-	caches := map[tc.CacheName]dsdata.StatCacheStats{}
-	cachesTime := map[tc.CacheName]time.Time{}
-	for i := 0; i < num; i++ {
-		cacheGroups[tc.CacheGroupName(randStr())] = randStatCacheStats()
-		types[tc.CacheType(randStr())] = randStatCacheStats()
-		cachesTime[tc.CacheName(randStr())] = time.Now()
-	}
-
-	return dsdata.Stat{
-		CommonStats: randStatCommon(),
-		CacheGroups: cacheGroups,
-		Types:       types,
-		Caches:      caches,
-		TotalStats:  randStatCacheStats(),
+func randAStat() *AStat {
+	return &AStat{
+		InBytes:   rand.Uint64(),
+		OutBytes:  rand.Uint64(),
+		Status2xx: rand.Uint64(),
+		Status3xx: rand.Uint64(),
+		Status4xx: rand.Uint64(),
+		Status5xx: rand.Uint64(),
 	}
 }
 
-func randDsStats() map[tc.DeliveryServiceName]dsdata.Stat {
+func randDsStats() map[tc.DeliveryServiceName]*AStat {
 	num := 5
-	a := map[tc.DeliveryServiceName]dsdata.Stat{}
+	a := map[tc.DeliveryServiceName]*AStat{}
 	for i := 0; i < num; i++ {
-		a[tc.DeliveryServiceName(randStr())] = randDsStat()
+		a[tc.DeliveryServiceName(randStr())] = randAStat()
 	}
 	return a
 }
@@ -233,64 +223,6 @@ func randResultHistory() ResultHistory {
 		a[tc.CacheName(randStr())] = randResultSlice()
 	}
 	return a
-}
-
-func randResultStatVal() ResultStatVal {
-	return ResultStatVal{
-		Val:  uint64(rand.Int63()),
-		Time: time.Now(),
-		Span: uint64(rand.Int63()),
-	}
-}
-
-func randResultStatValHistory() ResultStatValHistory {
-	a := ResultStatValHistory{}
-	num := 5
-	numSlice := 5
-	for i := 0; i < num; i++ {
-		cacheName := randStr()
-		for j := 0; j < numSlice; j++ {
-			a[cacheName] = append(a[cacheName], randResultStatVal())
-		}
-	}
-	return a
-}
-
-func randResultStatHistory() ResultStatHistory {
-	hist := ResultStatHistory{}
-
-	num := 5
-	for i := 0; i < num; i++ {
-		hist[tc.CacheName(randStr())] = randResultStatValHistory()
-	}
-	return hist
-}
-
-func randResultInfoHistory() ResultInfoHistory {
-	// type ResultInfoHistory map[tc.CacheName][]ResultInfo
-	hist := ResultInfoHistory{}
-
-	num := 5
-	infNum := 5
-	for i := 0; i < num; i++ {
-		cacheName := tc.CacheName(randStr())
-		for j := 0; j < infNum; j++ {
-			hist[cacheName] = append(hist[cacheName], randResultInfo())
-		}
-	}
-	return hist
-}
-
-func randResultInfo() ResultInfo {
-	return ResultInfo{
-		ID:          tc.CacheName(randStr()),
-		Error:       fmt.Errorf(randStr()),
-		Time:        time.Now(),
-		RequestTime: time.Millisecond * time.Duration(rand.Int()),
-		Vitals:      randVitals(),
-		PollID:      uint64(rand.Int63()),
-		Available:   randBool(),
-	}
 }
 
 func TestResultHistoryCopy(t *testing.T) {

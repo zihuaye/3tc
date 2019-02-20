@@ -23,37 +23,18 @@ import (
 )
 
 func TestPhysLocations(t *testing.T) {
-
-	CreateTestCDNs(t)
-	CreateTestDivisions(t)
-	CreateTestRegions(t)
-	CreateTestPhysLocations(t)
-	UpdateTestPhysLocations(t)
-	GetTestPhysLocations(t)
-	DeleteTestPhysLocations(t)
-	DeleteTestRegions(t)
-	DeleteTestDivisions(t)
-	DeleteTestCDNs(t)
-
+	WithObjs(t, []TCObj{CDNs, Parameters, Divisions, Regions, PhysLocations}, func() {
+		UpdateTestPhysLocations(t)
+		GetTestPhysLocations(t)
+	})
 }
 
 func CreateTestPhysLocations(t *testing.T) {
-
-	// Attach CDNs
-	region := testData.Regions[0]
-	resp, _, err := TOSession.GetRegionByName(region.Name)
-	if err != nil {
-		t.Errorf("cannot GET region by name: %v - %v\n", region.Name, err)
-	}
-	respRegion := resp[0]
-
 	for _, pl := range testData.PhysLocations {
-
-		pl.RegionID = respRegion.ID
 		resp, _, err := TOSession.CreatePhysLocation(pl)
 		log.Debugln("Response: ", resp)
 		if err != nil {
-			t.Errorf("could not CREATE cdns: %v\n", err)
+			t.Errorf("could not CREATE physlocations: %v\n", err)
 		}
 	}
 

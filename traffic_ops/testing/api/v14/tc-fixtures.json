@@ -46,13 +46,60 @@
             "typeName": "EDGE_LOC"
         },
         {
+            "latitude": 0,
+            "longitude": 0,
+            "name": "fallback1",
+            "parentCachegroupName": "parentCachegroup",
+            "secondaryParentCachegroupName": "secondaryCachegroup",
+            "shortName": "fb1",
+            "localizationMethods": [
+                "CZ",
+                "DEEP_CZ",
+                "GEO"
+            ],
+            "typeName": "EDGE_LOC"
+        },
+        {
+            "latitude": 0,
+            "longitude": 0,
+            "name": "fallback2",
+            "parentCachegroupName": "parentCachegroup",
+            "secondaryParentCachegroupName": "secondaryCachegroup",
+            "shortName": "fb2",
+            "localizationMethods": [
+                "CZ",
+                "DEEP_CZ",
+                "GEO"
+            ],
+            "typeName": "EDGE_LOC"
+        },
+        {
+            "latitude": 0,
+            "longitude": 0,
+            "name": "fallback3",
+            "parentCachegroupName": "parentCachegroup",
+            "secondaryParentCachegroupName": "secondaryCachegroup",
+            "shortName": "fb3",
+            "localizationMethods": [
+                "CZ",
+                "DEEP_CZ",
+                "GEO"
+            ],
+            "typeName": "EDGE_LOC"
+        },
+        {
             "latitude": 24.1234,
             "longitude": -121.1234,
             "name": "cachegroup2",
             "parentCachegroupName": "parentCachegroup",
             "secondaryParentCachegroupName": "secondaryCachegroup",
             "shortName": "cg2",
-            "typeName": "EDGE_LOC"
+            "typeName": "EDGE_LOC",
+            "fallbacks": [
+                "fallback1",
+                "fallback2",
+                "fallback3"
+            ]
         }
     ],
     "cdns": [
@@ -96,6 +143,7 @@
             "changeType": "create",
             "deliveryService": {
                 "active": true,
+                "cdnName": "cdn1",
                 "ccrDnsTtl": 30,
                 "deepCachingType": "NEVER",
                 "displayName": "Good Kabletown CDN",
@@ -107,7 +155,7 @@
                 "longDesc": "long desc",
                 "regionalGeoBlocking": true,
                 "routingName": "goodroute",
-                "tenantId": 2,
+                "tenant": "tenant1",
                 "type": "HTTP",
                 "xmlId": "test-ds1"
             },
@@ -117,6 +165,7 @@
             "changeType": "create",
             "deliveryService": {
                 "active": true,
+                "cdnName": "cdn1",
                 "ccrDnsTtl": 30,
                 "deepCachingType": "NEVER",
                 "displayName": "Bad Tenant",
@@ -127,9 +176,9 @@
                 "logsEnabled": false,
                 "longDesc": "long desc",
                 "regionalGeoBlocking": false,
-                "tenantId": 1,
+                "tenant": "root",
                 "type": "HTTP",
-                "xmlId": "test-ds1"
+                "xmlId": "test-ds2"
             },
             "status": "draft"
         },
@@ -149,9 +198,9 @@
                 "orgServerFqdn": "xxx",
                 "regionalGeoBlocking": true,
                 "routingName": "x routing",
-                "tenantId": 2,
+                "tenant": "tenant1",
                 "type": "HTTP",
-                "xmlId": "test ds1"
+                "xmlId": "test-ds3"
             },
             "status": "draft"
         },
@@ -159,6 +208,7 @@
             "changeType": "update",
             "deliveryService": {
                 "active": false,
+                "cdnName": "cdn1",
                 "ccrDnsTtl": 30,
                 "deepCachingType": "NEVER",
                 "displayName": "Testing transitions",
@@ -170,7 +220,7 @@
                 "longDesc": "long desc",
                 "regionalGeoBlocking": true,
                 "routingName": "goodroute",
-                "tenantId": 2,
+                "tenant": "tenant1",
                 "type": "HTTP",
                 "xmlId": "test-transitions"
             },
@@ -180,6 +230,7 @@
     "deliveryServices": [
         {
             "active": true,
+            "cdnName": "cdn1",
             "cacheurl": "cacheUrl1",
             "ccrDnsTtl": 3600,
             "cdnName": "cdn1",
@@ -227,7 +278,6 @@
             "orgServerFqdn": "http://origin.example.net",
             "originShield": null,
             "profileDescription": null,
-            "profileId": null,
             "profileName": null,
             "protocol": 2,
             "qstringIgnore": 1,
@@ -247,6 +297,7 @@
         },
         {
             "active": true,
+            "cdnName": "cdn1",
             "cacheurl": "cacheUrl2",
             "ccrDnsTtl": 3600,
             "cdnName": "cdn1",
@@ -310,6 +361,130 @@
             "type": "HTTP_LIVE",
             "xmlId": "ds2",
             "anonymousBlockingEnabled": true
+        },
+        {
+            "active": true,
+            "cdnName": "cdn1",
+            "cacheurl": "cacheUrl3",
+            "ccrDnsTtl": 3600,
+            "cdnName": "cdn1",
+            "checkPath": "",
+            "deepCachingType": "NEVER",
+            "displayName": "d s 1",
+            "dnsBypassCname": null,
+            "dnsBypassIp": "",
+            "dnsBypassIp6": "",
+            "dnsBypassTtl": 30,
+            "dscp": 40,
+            "edgeHeaderRewrite": "edgeRewrite3",
+            "exampleURLs": [
+                "http://ccr.ds3.example.net",
+                "https://ccr.ds3x.example.net"
+            ],
+            "fqPacingRate": 0,
+            "geoLimit": 0,
+            "geoLimitCountries": "",
+            "geoLimitRedirectURL": null,
+            "geoProvider": 0,
+            "globalMaxMbps": 0,
+            "globalMaxTps": 0,
+            "httpBypassFqdn": "",
+            "infoUrl": "TBD",
+            "initialDispersion": 1,
+            "ipv6RoutingEnabled": true,
+            "lastUpdated": "2018-04-06 16:48:51+00",
+            "logsEnabled": false,
+            "longDesc": "d s 3",
+            "longDesc1": "ds3",
+            "longDesc2": "ds3",
+            "matchList": [
+                {
+                    "pattern": ".*\\.ds3\\..*",
+                    "setNumber": 0,
+                    "type": "HOST_REGEXP"
+                }
+            ],
+            "maxDnsAnswers": 0,
+            "midHeaderRewrite": "midRewrite3",
+            "missLat": 41.881944,
+            "missLong": -87.627778,
+            "multiSiteOrigin": false,
+            "orgServerFqdn": "http://origin.ds3.example.net",
+            "originShield": null,
+            "profileDescription": null,
+            "profileName": null,
+            "protocol": 2,
+            "qstringIgnore": 1,
+            "rangeRequestHandling": 0,
+            "regexRemap": "regexRemap3",
+            "regionalGeoBlocking": false,
+            "remapText": "@plugin=tslua.so @pparam=/opt/trafficserver/etc/trafficserver/ds3plugin.lua",
+            "routingName": "ccr-ds3",
+            "signed": false,
+            "signingAlgorithm": "url_sig",
+            "sslKeyVersion": 2,
+            "tenant": "tenant3",
+            "tenantName": "tenant3",
+            "type": "HTTP_LIVE",
+            "xmlId": "ds3",
+            "anonymousBlockingEnabled": true
+        },
+        {
+            "active": true,
+            "cdnName": "cdn1",
+            "cacheurl": "",
+            "ccrDnsTtl": 3600,
+            "checkPath": "",
+            "deepCachingType": "NEVER",
+            "displayName": "anymap-ds",
+            "dnsBypassCname": null,
+            "dnsBypassIp": "",
+            "dnsBypassIp6": "",
+            "dnsBypassTtl": 30,
+            "dscp": 40,
+            "edgeHeaderRewrite": "",
+            "exampleURLs": [],
+            "fqPacingRate": 0,
+            "geoLimit": 0,
+            "geoLimitCountries": "",
+            "geoLimitRedirectURL": null,
+            "geoProvider": 0,
+            "globalMaxMbps": 0,
+            "globalMaxTps": 0,
+            "httpBypassFqdn": "",
+            "infoUrl": "",
+            "initialDispersion": 1,
+            "ipv6RoutingEnabled": true,
+            "lastUpdated": "2018-04-06 16:48:51+00",
+            "logsEnabled": false,
+            "longDesc": "",
+            "longDesc1": "",
+            "longDesc2": "",
+            "matchList": [],
+            "maxDnsAnswers": 0,
+            "midHeaderRewrite": "",
+            "missLat": 41.881944,
+            "missLong": -87.627778,
+            "multiSiteOrigin": false,
+            "orgServerFqdn": "http://example.com",
+            "originShield": null,
+            "profileDescription": null,
+            "profileName": null,
+            "protocol": 2,
+            "qstringIgnore": 1,
+            "rangeRequestHandling": 0,
+            "regexRemap": "",
+            "regionalGeoBlocking": false,
+            "remapText": "some raw remap text",
+            "routingName": "",
+            "signed": false,
+            "signingAlgorithm": "url_sig",
+            "sslKeyVersion": 2,
+            "tenant": "tenant3",
+            "tenantName": "tenant3",
+            "type": "ANY_MAP",
+            "xmlId": "anymap-ds",
+            "anonymousBlockingEnabled": true
         }
     ],
     "divisions": [
@@ -347,21 +522,25 @@
     "origins": [
         {
             "name": "origin1",
+            "cachegroup": "originCachegroup",
+            "deliveryService": "ds1",
             "fqdn": "origin1.example.com",
             "ipAddress": "1.2.3.4",
             "ip6Address": "dead:beef:cafe::42",
             "port": 1234,
             "protocol": "http",
-            "tenantId": 2
+            "tenant": "tenant1"
         },
         {
             "name": "origin2",
+            "cachegroup": "originCachegroup",
+            "deliveryService": "ds2",
             "fqdn": "origin2.example.com",
             "ipAddress": "5.6.7.8",
             "ip6Address": "cafe::42",
             "port": 5678,
             "protocol": "https",
-            "tenantId": 2
+            "tenant": "tenant1"
         }
     ],
     "parameters": [
@@ -385,20 +564,6 @@
             "name": "history.count",
             "secure": false,
             "value": "30"
-        },
-        {
-            "configFile": "url_sig.config",
-            "lastUpdated": "2018-01-19T19:01:21.431062+00:00",
-            "name": "error_url",
-            "secure": true,
-            "value": "403"
-        },
-        {
-            "configFile": "records.config",
-            "lastUpdated": "2018-01-19T19:01:21.432692+00:00",
-            "name": "CONFIG proxy.config.allocator.debug_filter",
-            "secure": false,
-            "value": "INT 0"
         },
         {
             "configFile": "records.config",
@@ -523,7 +688,7 @@
             "name": "Denver",
             "phone": "303-111-1111",
             "poc": null,
-            "regionId": 100,
+            "region": "region1",
             "shortName": "denver",
             "state": "CO",
             "zip": "80202"
@@ -537,7 +702,7 @@
             "name": "Boulder",
             "phone": "303-222-2222",
             "poc": null,
-            "regionId": 100,
+            "region": "region1",
             "shortName": "boulder",
             "state": "CO",
             "zip": "80301"
@@ -551,7 +716,7 @@
             "name": "HotAtlanta",
             "phone": "404-222-2222",
             "poc": null,
-            "regionId": 100,
+            "region": "region1",
             "shortName": "atlanta",
             "state": "GA",
             "zip": "30301"
@@ -560,10 +725,382 @@
     "profiles": [
         {
             "cdnName": "cdn1",
-            "description": "edge description",
-            "lastUpdated": "2018-03-02T17:27:11.796899+00:00",
+            "description": "Edge Cache - Apache Traffic Server",
+            "name": "ATS_EDGE_TIER_CACHE",
+            "routingDisabled": false,
+            "type": "ATS_PROFILE",
+            "params": [
+                 {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.proxy_name",
+                    "secure": false,
+                    "value": "STRING __HOSTNAME__"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.config_dir",
+                    "secure": false,
+                    "value": "STRING /etc/trafficserver"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.admin.user_id",
+                    "secure": false,
+                    "value": "STRING ats"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.http.server_ports",
+                    "secure": false,
+                    "value": "STRING 80 80:ipv6"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.http.insert_response_via_str",
+                    "secure": false,
+                    "value": "INT 3"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.http.parent_proxy_routing_enable",
+                    "secure": false,
+                    "value": "INT 1"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.http.parent_proxy.retry_time",
+                    "secure": false,
+                    "value": "INT 60"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.http.connect_attempts_timeout",
+                    "secure": false,
+                    "value": "INT 10"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.http.cache.required_headers",
+                    "secure": false,
+                    "value": "INT 0"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.http.enable_http_stats",
+                    "secure": false,
+                    "value": "INT 1"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.dns.round_robin_nameservers",
+                    "secure": false,
+                    "value": "INT 0"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.log.max_space_mb_for_logs",
+                    "secure": false,
+                    "value": "INT 512"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.log.max_space_mb_headroom",
+                    "secure": false,
+                    "value": "INT 50"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.log.logfile_dir",
+                    "secure": false,
+                    "value": "STRING /var/log/trafficserver"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.reverse_proxy.enabled",
+                    "secure": false,
+                    "value": "INT 0"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.diags.debug.enabled",
+                    "secure": false,
+                    "value": "INT 1"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.http.slow.log.threshold",
+                    "secure": false,
+                    "value": "INT 10000"
+                },
+                {
+                    "configFile": "cache.config",
+                    "name": "location",
+                    "secure": false,
+                    "value": "/etc/trafficserver/"
+                },
+                {
+                    "configFile": "hosting.config",
+                    "name": "location",
+                    "secure": false,
+                    "value": "/etc/trafficserver/"
+                },
+                {
+                    "configFile": "parent.config",
+                    "name": "location",
+                    "secure": false,
+                    "value": "/etc/trafficserver/"
+                },
+                {
+                    "configFile": "plugin.config",
+                    "name": "location",
+                    "secure": false,
+                    "value": "/etc/trafficserver/"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "location",
+                    "secure": false,
+                    "value": "/etc/trafficserver/"
+                },
+                {
+                    "configFile": "storage.config",
+                    "name": "location",
+                    "secure": false,
+                    "value": "/etc/trafficserver/"
+                },
+                {
+                    "configFile": "volume.config",
+                    "name": "location",
+                    "secure": false,
+                    "value": "/etc/trafficserver/"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.url_remap.remap_required",
+                    "secure": false,
+                    "value": "INT 0"
+                },
+                {
+                    "configFile": "rascal.properties",
+                    "name": "health.threshold.queryTime",
+                    "secure": false,
+                    "value": "1000"
+                },
+                {
+                    "configFile": "rascal.properties",
+                    "name": "health.polling.url",
+                    "secure": false,
+                    "value": "http://${hostname}/_astats?application=&inf.name=${interface_name}"
+                },
+                {
+                    "configFile": "storage.config",
+                    "name": "Disk_Volume",
+                    "secure": false,
+                    "value": "1"
+                },
+                {
+                    "configFile": "rascal.properties",
+                    "name": "health.connection.timeout",
+                    "secure": false,
+                    "value": "2000"
+                },
+                {
+                    "configFile": "chkconfig",
+                    "name": "trafficserver",
+                    "secure": false,
+                    "value": "0:off\t1:off\t2:on\t3:on\t4:on\t5:on\t6:off"
+                },
+                {
+                    "configFile": "regex_revalidate.config",
+                    "name": "location",
+                    "secure": false,
+                    "value": "/etc/trafficserver"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.exec_thread.autoconfig",
+                    "secure": false,
+                    "value": "INT 0"
+                },
+                {
+                    "configFile": "plugin.config",
+                    "name": "astats_over_http.so",
+                    "secure": false,
+                    "value": ""
+                },
+                {
+                    "configFile": "astats.config",
+                    "name": "allow_ip",
+                    "secure": false,
+                    "value": "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+                },
+                {
+                    "configFile": "astats.config",
+                    "name": "allow_ip6",
+                    "secure": false,
+                    "value": "::1/128,fc01:9400:1000:8::/64"
+                },
+                {
+                    "configFile": "astats.config",
+                    "name": "location",
+                    "secure": false,
+                    "value": "/etc/trafficserver"
+                },
+                {
+                    "configFile": "astats.config",
+                    "name": "path",
+                    "secure": false,
+                    "value": "_astats"
+                },
+                {
+                    "configFile": "astats.config",
+                    "name": "record_types",
+                    "secure": false,
+                    "value": "122"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.http.transaction_active_timeout_in",
+                    "secure": false,
+                    "value": "INT 0"
+                },
+                {
+                    "configFile": "records.config",
+                    "name": "CONFIG proxy.config.body_factory.template_sets_dir",
+                    "secure": false,
+                    "value": "STRING /etc/trafficserver/body_factory"
+                },
+                {
+                    "configFile": "storage.config",
+                    "name": "Drive_Letters",
+                    "secure": false,
+                    "value": "cache"
+                },
+                {
+                    "configFile": "ip_allow.config",
+                    "name": "location",
+                    "secure": false,
+                    "value": "/etc/trafficserver"
+                },
+                {
+                    "configFile": "storage.config",
+                    "name": "Drive_Prefix",
+                    "secure": false,
+                    "value": "/var/trafficserver/"
+                },
+                {
+                    "configFile": "set_dscp_0.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_10.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_12.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_14.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_18.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_20.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_22.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_26.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_28.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_30.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_34.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_36.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_38.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_8.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_16.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_24.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_32.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_40.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_48.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_56.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                },
+                {
+                    "configFile": "set_dscp_37.config",
+                    "name": "location",
+                    "value": "/etc/trafficserver/dscp"
+                }
+            ]
+        },
+        {
+            "cdnName": "cdn1",
+            "description": "edge1 description",
+            "lastUpdated": "2018-03-02T17:27:11.818418+00:00",
             "name": "EDGE1",
-            "routing_disabled": true,
+            "routing_disabled": false,
             "type": "ATS_PROFILE"
         },
         {
@@ -615,14 +1152,6 @@
             "type": "TM_PROFILE"
         }
     ],
-    "profileParameters": [
-        {
-            "parameterId": 100
-        },
-        {
-            "parameterId": 200
-        }
-    ],
     "regions": [
         {
             "divisionName": "division1",
@@ -657,6 +1186,8 @@
     ],
     "servers": [
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "ga.atlanta.kabletown.net",
             "guid": null,
             "hostName": "atlanta-edge-01",
@@ -678,10 +1209,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 80,
             "type": "EDGE",
             "updPending": true,
@@ -689,6 +1223,8 @@
             "xmppPasswd": "X"
         },
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "kabletown.net",
             "guid": null,
             "hostName": "influxdb02",
@@ -710,10 +1246,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 8086,
             "type": "EDGE",
             "updPending": true,
@@ -721,6 +1260,8 @@
             "xmppPasswd": ""
         },
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "ga.atlanta.kabletown.net",
             "guid": null,
             "hostName": "atlanta-router-01",
@@ -742,10 +1283,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 80,
             "type": "EDGE",
             "updPending": true,
@@ -753,6 +1297,8 @@
             "xmppPasswd": "X"
         },
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "ga.atlanta.kabletown.net",
             "guid": null,
             "hostName": "atlanta-edge-03",
@@ -774,10 +1320,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 80,
             "type": "EDGE",
             "updPending": true,
@@ -785,6 +1334,8 @@
             "xmppPasswd": "X"
         },
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "ga.atlanta.kabletown.net",
             "guid": null,
             "hostName": "atlanta-edge-14",
@@ -806,10 +1357,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 80,
             "type": "EDGE",
             "updPending": true,
@@ -817,6 +1371,8 @@
             "xmppPasswd": "X"
         },
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "ga.atlanta.kabletown.net",
             "guid": null,
             "hostName": "atlanta-edge-15",
@@ -838,10 +1394,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 80,
             "type": "EDGE",
             "updPending": true,
@@ -849,6 +1408,8 @@
             "xmppPasswd": "X"
         },
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "ga.atlanta.kabletown.net",
             "guid": null,
             "hostName": "atlanta-mid-16",
@@ -870,10 +1431,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 80,
             "type": "MID",
             "updPending": true,
@@ -881,6 +1445,8 @@
             "xmppPasswd": "X"
         },
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "ga.atlanta.kabletown.net",
             "guid": null,
             "hostName": "atlanta-org-1",
@@ -902,10 +1468,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 80,
             "type": "EDGE",
             "updPending": true,
@@ -913,6 +1482,8 @@
             "xmppPasswd": "X"
         },
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "ga.atlanta.kabletown.net",
             "guid": null,
             "hostName": "atlanta-org-2",
@@ -934,10 +1505,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 80,
             "type": "EDGE",
             "updPending": true,
@@ -945,6 +1519,8 @@
             "xmppPasswd": "X"
         },
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "ga.atlanta.kabletown.net",
             "guid": null,
             "hostName": "atlanta-mid-01",
@@ -966,10 +1542,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 80,
             "type": "MID",
             "updPending": true,
@@ -977,6 +1556,8 @@
             "xmppPasswd": "X"
         },
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "kabletown.net",
             "guid": null,
             "hostName": "rascal01",
@@ -998,10 +1579,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 81,
             "type": "TRAFFIC_MONITOR",
             "updPending": true,
@@ -1009,6 +1593,8 @@
             "xmppPasswd": "X"
         },
         {
+            "cachegroup": "cachegroup1",
+            "cdnName": "cdn1",
             "domainName": "local",
             "guid": null,
             "hostName": "riak",
@@ -1030,10 +1616,13 @@
             "mgmtIpGateway": "",
             "mgmtIpNetmask": "",
             "offlineReason": null,
+            "physLocation": "Denver",
+            "profile": "EDGE1",
             "rack": "RR 119.02",
             "revalPending": false,
             "routerHostName": "",
             "routerPortName": "",
+            "status": "REPORTED",
             "tcpPort": 8088,
             "type": "RIAK",
             "updPending": true,
@@ -1102,6 +1691,16 @@
         {
             "active": false,
             "name": "tenant2",
+            "parentName": "tenant1"
+        },
+        {
+            "active": true,
+            "name": "tenant3",
+            "parentName": "tenant2"
+        },
+        {
+            "active": true,
+            "name": "tenant4",
             "parentName": "root"
         }
     ],
@@ -1317,7 +1916,7 @@
             "publicSshKey": "",
             "role": 4,
             "stateOrProvince": "LA",
-            "tenantId": 1,
+            "tenant": "root",
             "uid": 0,
             "username": "adminuser"
         },
@@ -1339,9 +1938,95 @@
             "registrationSent": "",
             "role": 1,
             "stateOrProvince": "",
-            "tenantId": 2,
+            "tenant": "tenant1",
             "uid": 0,
             "username": "disalloweduser"
+        },
+        {
+            "addressLine1": "address of readonly",
+            "addressLine2": "place",
+            "city": "somewhere",
+            "company": "else",
+            "country": "UK",
+            "email": "readonly@example.com",
+            "fullName": "Readonly User",
+            "gid": 0,
+            "localPasswd": "pa$$word",
+            "confirmLocalPasswd": "pa$$word",
+            "newUser": false,
+            "phoneNumber": "",
+            "postalCode": "",
+            "publicSshKey": "",
+            "registrationSent": "",
+            "role": 2,
+            "stateOrProvince": "",
+            "tenant": "tenant1",
+            "uid": 0,
+            "username": "readonlyuser"
+        },
+        {
+            "addressLine1": "address of admin",
+            "addressLine2": "",
+            "city": "Anywhere",
+            "company": "Comcast",
+            "country": "USA",
+            "email": "tenant3user@example.com",
+            "fullName": "Fred the admin",
+            "gid": 0,
+            "localPasswd": "pa$$word",
+            "confirmLocalPasswd": "pa$$word",
+            "newUser": false,
+            "phoneNumber": "810-555-9876",
+            "postalCode": "55443",
+            "publicSshKey": "",
+            "role": 4,
+            "stateOrProvince": "LA",
+            "tenant": "tenant3",
+            "uid": 0,
+            "username": "tenant3user"
+        },
+        {
+            "addressLine1": "address of admin",
+            "addressLine2": "",
+            "city": "Anywhere",
+            "company": "Comcast",
+            "country": "USA",
+            "email": "tenant4user@example.com",
+            "fullName": "Fred the admin",
+            "gid": 0,
+            "localPasswd": "pa$$word",
+            "confirmLocalPasswd": "pa$$word",
+            "newUser": false,
+            "phoneNumber": "810-555-9876",
+            "postalCode": "55443",
+            "publicSshKey": "",
+            "role": 4,
+            "stateOrProvince": "LA",
+            "tenant": "tenant4",
+            "uid": 0,
+            "username": "tenant4user"
+        },
+        {
+            "addressLine1": "address of ops",
+            "addressLine2": "place",
+            "city": "somewhere",
+            "company": "else",
+            "country": "UK",
+            "email": "ops@example.com",
+            "fullName": "Operations User",
+            "gid": 0,
+            "localPasswd": "pa$$word",
+            "confirmLocalPasswd": "pa$$word",
+            "newUser": false,
+            "phoneNumber": "",
+            "postalCode": "",
+            "publicSshKey": "",
+            "registrationSent": "",
+            "role": 3,
+            "stateOrProvince": "",
+            "tenant": "root",
+            "uid": 0,
+            "username": "opsuser"
         }
     ],
     "steeringTargets": [
@@ -1350,6 +2035,24 @@
             "target": "ds2",
             "value": 42,
             "type": "STEERING_WEIGHT"
+        }
+    ],
+    "jobs": [
+        {
+            "dsName": "ds1",
+            "request": {
+                "startTime": "2019-01-01 00:00:00",
+                "ttl": 2160,
+                "regex": "/foo"
+            }
+        },
+        {
+            "dsName": "ds1",
+            "request": {
+                "startTime": "2019-01-01 00:00:00",
+                "ttl": 2160,
+                "regex": "/foo"
+            }
         }
     ]
 }

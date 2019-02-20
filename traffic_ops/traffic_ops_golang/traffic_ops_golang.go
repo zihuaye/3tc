@@ -29,12 +29,15 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/pprof"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/apache/trafficcontrol/lib/go-log"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/about"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/auth"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/config"
+	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/plugin"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -50,6 +53,7 @@ func init() {
 
 func main() {
 	showVersion := flag.Bool("version", false, "Show version and exit")
+	showPlugins := flag.Bool("plugins", false, "Show the list of plugins and exit")
 	configFileName := flag.String("cfg", "", "The config file path")
 	dbConfigFileName := flag.String("dbcfg", "", "The db config file path")
 	riakConfigFileName := flag.String("riakcfg", "", "The riak config file path")
@@ -57,6 +61,10 @@ func main() {
 
 	if *showVersion {
 		fmt.Println(about.About.RPMVersion)
+		os.Exit(0)
+	}
+	if *showPlugins {
+		fmt.Println(strings.Join(plugin.List(), "\n"))
 		os.Exit(0)
 	}
 	if len(os.Args) < 2 {
@@ -83,31 +91,7 @@ func main() {
 		log.Warnln(err)
 	}
 
-	log.Infof(`Using Config values:
-		Port:                 %s
-		Db Server:            %s
-		Db User:              %s
-		Db Name:              %s
-		Db Ssl:               %t
-		Max Db Connections:   %d
-		TO URL:               %s
-		Insecure:             %t
-		Cert Path:            %s
-		Key Path:             %s
-		Proxy Timeout:        %v
-		Proxy KeepAlive:      %v
-		Proxy tls handshake:  %v
-		Proxy header timeout: %v
-		Read Timeout:         %v
-		Read Header Timeout:  %v
-		Write Timeout:        %v
-		Idle Timeout:         %v
-		Error Log:            %s
-		Warn Log:             %s
-		Info Log:             %s
-		Debug Log:            %s
-		Event Log:            %s
-		LDAP Enabled:         %v`, cfg.Port, cfg.DB.Hostname, cfg.DB.User, cfg.DB.DBName, cfg.DB.SSL, cfg.MaxDBConnections, cfg.Listen[0], cfg.Insecure, cfg.CertPath, cfg.KeyPath, time.Duration(cfg.ProxyTimeout)*time.Second, time.Duration(cfg.ProxyKeepAlive)*time.Second, time.Duration(cfg.ProxyTLSTimeout)*time.Second, time.Duration(cfg.ProxyReadHeaderTimeout)*time.Second, time.Duration(cfg.ReadTimeout)*time.Second, time.Duration(cfg.ReadHeaderTimeout)*time.Second, time.Duration(cfg.WriteTimeout)*time.Second, time.Duration(cfg.IdleTimeout)*time.Second, cfg.LogLocationError, cfg.LogLocationWarning, cfg.LogLocationInfo, cfg.LogLocationDebug, cfg.LogLocationEvent, cfg.LDAPEnabled)
+	logConfig(cfg)
 
 	err := auth.LoadPasswordBlacklist("app/conf/invalid_passwords.txt")
 	if err != nil {
@@ -131,6 +115,8 @@ func main() {
 	db.SetMaxIdleConns(cfg.DBMaxIdleConnections)
 	db.SetConnMaxLifetime(time.Duration(cfg.DBConnMaxLifetimeSeconds) * time.Second)
 
+	// TODO combine
+	plugins := plugin.Get(cfg)
 	profiling := cfg.ProfilingEnabled
 
 	pprofMux := http.DefaultServeMux
@@ -146,10 +132,12 @@ func main() {
 		log.Errorln(debugServer.ListenAndServe())
 	}()
 
-	if err := RegisterRoutes(ServerData{DB: db, Config: cfg, Profiling: &profiling}); err != nil {
+	if err := RegisterRoutes(ServerData{DB: db, Config: cfg, Profiling: &profiling, Plugins: plugins}); err != nil {
 		log.Errorf("registering routes: %v\n", err)
 		return
 	}
+
+	plugins.OnStartup(plugin.StartupData{Data: plugin.Data{SharedCfg: cfg.PluginSharedConfig, AppCfg: cfg}})
 
 	log.Infof("Listening on " + cfg.Port)
 
@@ -277,4 +265,37 @@ func signalReloader(sig os.Signal, f func()) {
 		log.Debugln("received SIGHUP")
 		f()
 	}
+}
+
+func logConfig(cfg config.Config) {
+	logRiakPort := "<nil>"
+	if cfg.RiakPort != nil {
+		logRiakPort = strconv.Itoa(int(*cfg.RiakPort))
+	}
+	log.Infof(`Using Config values:
+		Port:                 %s
+		Db Server:            %s
+		Db User:              %s
+		Db Name:              %s
+		Db Ssl:               %t
+		Max Db Connections:   %d
+		TO URL:               %s
+		Insecure:             %t
+		Cert Path:            %s
+		Key Path:             %s
+		Proxy Timeout:        %v
+		Proxy KeepAlive:      %v
+		Proxy tls handshake:  %v
+		Proxy header timeout: %v
+		Read Timeout:         %v
+		Read Header Timeout:  %v
+		Write Timeout:        %v
+		Idle Timeout:         %v
+		Error Log:            %s
+		Warn Log:             %s
+		Info Log:             %s
+		Debug Log:            %s
+		Event Log:            %s
+		Riak Port:            %v
+		LDAP Enabled:         %v`, cfg.Port, cfg.DB.Hostname, cfg.DB.User, cfg.DB.DBName, cfg.DB.SSL, cfg.MaxDBConnections, cfg.Listen[0], cfg.Insecure, cfg.CertPath, cfg.KeyPath, time.Duration(cfg.ProxyTimeout)*time.Second, time.Duration(cfg.ProxyKeepAlive)*time.Second, time.Duration(cfg.ProxyTLSTimeout)*time.Second, time.Duration(cfg.ProxyReadHeaderTimeout)*time.Second, time.Duration(cfg.ReadTimeout)*time.Second, time.Duration(cfg.ReadHeaderTimeout)*time.Second, time.Duration(cfg.WriteTimeout)*time.Second, time.Duration(cfg.IdleTimeout)*time.Second, cfg.LogLocationError, cfg.LogLocationWarning, cfg.LogLocationInfo, cfg.LogLocationDebug, cfg.LogLocationEvent, logRiakPort, cfg.LDAPEnabled)
 }

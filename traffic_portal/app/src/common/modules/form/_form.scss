@@ -20,6 +20,15 @@
   color: #cd1323;
 }
 
-form .control-label > span:hover {
-  text-decoration: underline;
+form .control-label > span {
+	text-decoration: underline dotted;
+
+	&:hover {
+		cursor: help;
+	}
+}
+
+.dnssec-info-text {
+  margin-bottom: 12px;
+  font-size: medium;
 }

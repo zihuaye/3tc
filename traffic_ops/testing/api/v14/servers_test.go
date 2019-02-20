@@ -23,76 +23,16 @@ import (
 )
 
 func TestServers(t *testing.T) {
-
-	CreateTestCDNs(t)
-	CreateTestTypes(t)
-	CreateTestProfiles(t)
-	CreateTestStatuses(t)
-	CreateTestDivisions(t)
-	CreateTestRegions(t)
-	CreateTestPhysLocations(t)
-	CreateTestCacheGroups(t)
-	CreateTestServers(t)
-	UpdateTestServers(t)
-	GetTestServers(t)
-	DeleteTestServers(t)
-	DeleteTestCacheGroups(t)
-	DeleteTestPhysLocations(t)
-	DeleteTestRegions(t)
-	DeleteTestDivisions(t)
-	DeleteTestStatuses(t)
-	DeleteTestProfiles(t)
-	DeleteTestTypes(t)
-	DeleteTestCDNs(t)
-
+	WithObjs(t, []TCObj{CDNs, Types, Parameters, Profiles, Statuses, Divisions, Regions, PhysLocations, CacheGroups, Servers}, func() {
+		UpdateTestServers(t)
+		GetTestServers(t)
+	})
 }
 
 func CreateTestServers(t *testing.T) {
 
-	// GET EDGE1 profile
-	respProfiles, _, err := TOSession.GetProfileByName("EDGE1")
-	if err != nil {
-		t.Errorf("cannot GET Profiles - %v\n", err)
-	}
-	respProfile := respProfiles[0]
-
-	// GET ONLINE status
-	respStatuses, _, err := TOSession.GetStatusByName("ONLINE")
-	if err != nil {
-		t.Errorf("cannot GET Status by name: ONLINE - %v\n", err)
-	}
-	respStatus := respStatuses[0]
-
-	// GET Denver physlocation
-	respPhysLocations, _, err := TOSession.GetPhysLocationByName("Denver")
-	if err != nil {
-		t.Errorf("cannot GET PhysLocation by name: Denver - %v\n", err)
-	}
-	respPhysLocation := respPhysLocations[0]
-
-	// GET cachegroup1 cachegroup
-	respCacheGroups, _, err := TOSession.GetCacheGroupNullableByName("cachegroup1")
-	if err != nil {
-		t.Errorf("cannot GET CacheGroup by name: cachegroup1 - %v\n", err)
-	}
-	respCacheGroup := respCacheGroups[0]
-
 	// loop through servers, assign FKs and create
 	for _, server := range testData.Servers {
-		// GET EDGE type
-		respTypes, _, err := TOSession.GetTypeByName(server.Type)
-		if err != nil {
-			t.Errorf("cannot GET Division by name: EDGE - %v\n", err)
-		}
-		respType := respTypes[0]
-
-		server.CDNID = respProfile.CDNID
-		server.ProfileID = respProfile.ID
-		server.TypeID = respType.ID
-		server.StatusID = respStatus.ID
-		server.PhysLocationID = respPhysLocation.ID
-		server.CachegroupID = *respCacheGroup.ID
-
 		resp, _, err := TOSession.CreateServer(server)
 		log.Debugln("Response: ", server.HostName, " ", resp)
 		if err != nil {

@@ -36,16 +36,11 @@ import (
 )
 
 type tester struct {
-	ID      int
-	userErr error //only for testing
-	sysErr  error //only for testing
-	errCode int   //only for testing
-}
-
-func GetTypeSingleton() func(apiInfo *APIInfo) CRUDer {
-	return func(apiInfo *APIInfo) CRUDer {
-		return &tester{}
-	}
+	ID          int
+	APIInfoImpl `json:"-"`
+	userErr     error //only for testing
+	sysErr      error //only for testing
+	errCode     int   //only for testing
 }
 
 var cfg = config.Config{ConfigTrafficOpsGolang: config.ConfigTrafficOpsGolang{DBQueryTimeoutSeconds: 20}}
@@ -134,9 +129,8 @@ func TestCreateHandler(t *testing.T) {
 	// Add our context to the request
 	r = r.WithContext(ctx)
 
-	typeRef := tester{ID: 1}
-
-	createFunc := CreateHandler(GetTypeSingleton())
+	typeRef := &tester{ID: 1}
+	createFunc := CreateHandler(typeRef)
 
 	//verifies we get the right changelog insertion
 	expectedMessage := Created + " " + typeRef.GetType() + ": " + typeRef.GetAuditName() + " keys: { id:1 }"
@@ -179,8 +173,7 @@ func TestReadHandler(t *testing.T) {
 
 	// Add our context to the request
 	r = r.WithContext(ctx)
-
-	readFunc := ReadHandler(GetTypeSingleton())
+	readFunc := ReadHandler(&tester{})
 
 	mock.ExpectBegin()
 	mock.ExpectCommit()
@@ -221,8 +214,8 @@ func TestUpdateHandler(t *testing.T) {
 	// Add our context to the request
 	r = r.WithContext(ctx)
 
-	typeRef := tester{ID: 1}
-	updateFunc := UpdateHandler(GetTypeSingleton())
+	typeRef := &tester{ID: 1}
+	updateFunc := UpdateHandler(typeRef)
 
 	//verifies we get the right changelog insertion
 	expectedMessage := Updated + " " + typeRef.GetType() + ": " + typeRef.GetAuditName() + " keys: { id:1 }"
@@ -240,6 +233,7 @@ func TestUpdateHandler(t *testing.T) {
 }
 
 func TestDeleteHandler(t *testing.T) {
+
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
@@ -265,8 +259,8 @@ func TestDeleteHandler(t *testing.T) {
 	// Add our context to the request
 	r = r.WithContext(ctx)
 
-	typeRef := tester{ID: 1}
-	deleteFunc := DeleteHandler(GetTypeSingleton())
+	typeRef := &tester{ID: 1}
+	deleteFunc := DeleteHandler(typeRef)
 
 	//verifies we get the right changelog insertion
 	expectedMessage := Deleted + " " + typeRef.GetType() + ": " + typeRef.GetAuditName() + " keys: { id:1 }"
