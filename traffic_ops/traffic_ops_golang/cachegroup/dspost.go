@@ -52,45 +52,52 @@ func DSPostHandler(w http.ResponseWriter, r *http.Request) {
 	vals := map[string]interface{}{
 		"alerts": tc.CreateAlerts(tc.SuccessLevel, "Delivery services successfully assigned to all the servers of cache group "+strconv.Itoa(inf.IntParams["id"])+".").Alerts,
 	}
-	api.RespWriterVals(w, r, inf.Tx.Tx, vals)(postDSes(inf.Tx.Tx, inf.User, int64(inf.IntParams["id"]), req.DeliveryServices))
+
+	resp, userErr, sysErr, errCode := postDSes(inf.Tx.Tx, inf.User, int64(inf.IntParams["id"]), req.DeliveryServices)
+	if userErr != nil || sysErr != nil {
+		api.HandleErr(w, r, inf.Tx.Tx, errCode, userErr, sysErr)
+		return
+	}
+	api.WriteRespVals(w, r, resp, vals)
 }
 
-func postDSes(tx *sql.Tx, user *auth.CurrentUser, cgID int64, dsIDs []int64) (tc.CacheGroupPostDSResp, error) {
+// postDSes returns the post response, any user error, any system error, and the HTTP status code to be returned in the event of an error.
+func postDSes(tx *sql.Tx, user *auth.CurrentUser, cgID int64, dsIDs []int64) (tc.CacheGroupPostDSResp, error, error, int) {
 	cdnName, err := getCachegroupCDN(tx, cgID)
 	if err != nil {
-		return tc.CacheGroupPostDSResp{}, errors.New("getting cachegroup CDN: " + err.Error())
+		return tc.CacheGroupPostDSResp{}, nil, errors.New("getting cachegroup CDN: " + err.Error()), http.StatusInternalServerError
 	}
 
 	tenantIDs, err := getDSTenants(tx, dsIDs)
 	if err != nil {
-		return tc.CacheGroupPostDSResp{}, errors.New("getting delivery service tennat IDs: " + err.Error())
+		return tc.CacheGroupPostDSResp{}, nil, errors.New("getting delivery service tennat IDs: " + err.Error()), http.StatusInternalServerError
 	}
 	for _, tenantID := range tenantIDs {
 		ok, err := tenant.IsResourceAuthorizedToUserTx(int(tenantID), user, tx)
 		if err != nil {
-			return tc.CacheGroupPostDSResp{}, errors.New("checking tenancy: " + err.Error())
+			return tc.CacheGroupPostDSResp{}, nil, errors.New("checking tenancy: " + err.Error()), http.StatusInternalServerError
 		}
 		if !ok {
-			return tc.CacheGroupPostDSResp{}, errors.New("not authorized for delivery service tenant " + strconv.FormatInt(tenantID, 10))
+			return tc.CacheGroupPostDSResp{}, errors.New("not authorized for delivery service tenant " + strconv.FormatInt(tenantID, 10)), nil, http.StatusForbidden
 		}
 	}
 
 	if err := verifyDSesCDN(tx, dsIDs, cdnName); err != nil {
-		return tc.CacheGroupPostDSResp{}, errors.New("verifying delivery service CDNs match cachegroup server CDNs: " + err.Error())
+		return tc.CacheGroupPostDSResp{}, nil, errors.New("verifying delivery service CDNs match cachegroup server CDNs: " + err.Error()), http.StatusInternalServerError
 	}
 	cgServers, err := getCachegroupServers(tx, cgID)
 	if err != nil {
-		return tc.CacheGroupPostDSResp{}, errors.New("getting cachegroup server names " + err.Error())
+		return tc.CacheGroupPostDSResp{}, nil, errors.New("getting cachegroup server names " + err.Error()), http.StatusInternalServerError
 	}
 	if err := insertCachegroupDSes(tx, cgID, dsIDs); err != nil {
-		return tc.CacheGroupPostDSResp{}, errors.New("inserting cachegroup delivery services: " + err.Error())
+		return tc.CacheGroupPostDSResp{}, nil, errors.New("inserting cachegroup delivery services: " + err.Error()), http.StatusInternalServerError
 	}
 
 	if err := updateParams(tx, dsIDs); err != nil {
-		return tc.CacheGroupPostDSResp{}, errors.New("updating delivery service parameters: " + err.Error())
+		return tc.CacheGroupPostDSResp{}, nil, errors.New("updating delivery service parameters: " + err.Error()), http.StatusInternalServerError
 	}
 	api.CreateChangeLogRawTx(api.ApiChange, fmt.Sprintf("assign servers in cache group %v to deliveryservices %v", cgID, dsIDs), user, tx)
-	return tc.CacheGroupPostDSResp{ID: util.JSONIntStr(cgID), ServerNames: cgServers, DeliveryServices: dsIDs}, nil
+	return tc.CacheGroupPostDSResp{ID: util.JSONIntStr(cgID), ServerNames: cgServers, DeliveryServices: dsIDs}, nil, nil, http.StatusOK
 }
 
 func insertCachegroupDSes(tx *sql.Tx, cgID int64, dsIDs []int64) error {
@@ -222,7 +229,7 @@ INSERT INTO parameter (name, config_file, value) (
     CONCAT('`+paramPrefix+`', xml_id, '.config'),
     (select v from ats_config_location)
   FROM deliveryservice WHERE id = ANY($1)
-) ON CONFLICT (name, config_file, value) DO UPDATE SET id = EXCLUDED.id RETURNING id
+) ON CONFLICT (name, config_file, value) DO UPDATE SET name = EXCLUDED.name RETURNING id
 `, pq.Array(dsIDs))
 	if err != nil {
 		return errors.New("inserting parameters: " + err.Error())

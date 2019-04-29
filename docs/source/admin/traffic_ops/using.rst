@@ -786,6 +786,8 @@ Traffic Router Profile
 +-----------------------------------------+------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------+
 | CoverageZoneJsonURL                     | CRConfig.xml           | The location (URL) to retrieve the coverage zone map file in JSON format from.                                                                   |
 +-----------------------------------------+------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------+
+| ecsEnable                               | CRConfig.json          | Boolean value to enable or disable ENDS0 client subnet extensions.                                                                               |
++-----------------------------------------+------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------+
 | geolocation.polling.url                 | CRConfig.json          | The location (URL) to retrieve the geo database file from.                                                                                       |
 +-----------------------------------------+------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------+
 | geolocation.polling.interval            | CRConfig.json          | How often to refresh the coverage geo location database  in ms                                                                                   |
@@ -901,15 +903,6 @@ This table defines how requests are matched to the delivery service. There are 3
 The **Order** entry defines the order in which the regular expressions get evaluated. To support ``CNAMES`` from domains outside of the Traffic Control top level DNS domain, enter multiple ``HOST_REGEXP`` lines.
 
 .. Note:: In most cases is is sufficient to have just one entry in this table that has a ``HOST_REGEXP`` Type, and Order ``0``. For the *movies* delivery service in the Kabletown CDN, the entry is simply single ``HOST_REGEXP`` set to ``.*\.movies\..*``. This will match every url that has a hostname that ends with ``movies.cdn1.kabletown.net``, since ``cdn1.kabletown.net`` is the Kabletown CDN's DNS domain.
-
-.. index::
-	Static DNS Entries
-
-.. _static-dns:
-
-Static DNS Entries
-------------------
-Static DNS entries allow you to create other names *under* the delivery service domain. You can enter any valid hostname, and create a CNAME, A or AAAA record for it by clicking the **Static DNS** button at the bottom of the delivery service details screen.
 
 .. index::
 	Server Assignments
@@ -1200,6 +1193,7 @@ To create a new snapshot, use the *Tools > Snapshot CRConfig* menu:
 	#. When the This will push out a new CRConfig.json. Are you sure? window opens, click **OK**.
 	#. The "Successfully wrote CRConfig.json!" window opens, click **OK**.
 
+.. Note:: Snapshotting the CDN also deletes all HTTPS certificates for every :term:`Delivery Service` which has been deleted since the last :term:`Snapshot`.
 
 .. index::
 	Invalidate Content

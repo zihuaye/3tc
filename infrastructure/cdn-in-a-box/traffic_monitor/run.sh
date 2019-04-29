@@ -44,23 +44,27 @@ insert-self-into-dns.sh
 source /to-access.sh
 
 # Wait on SSL certificate generation
-until [ -f "$X509_CA_DONE_FILE" ] 
+until [[ -f "$X509_CA_ENV_FILE" ]]
 do
   echo "Waiting on Shared SSL certificate generation"
   sleep 3
 done
 
 # Source the CIAB-CA shared SSL environment
-source $X509_CA_ENV_FILE
+until [[ -n "$X509_GENERATION_COMPLETE" ]]
+do
+  echo "Waiting on X509 vars to be defined"
+  sleep 1
+  source "$X509_CA_ENV_FILE"
+done
 
 # Trust the CIAB-CA at the System level
 cp $X509_CA_CERT_FULL_CHAIN_FILE /etc/pki/ca-trust/source/anchors
 update-ca-trust extract
 
 # Enroll with traffic ops
-CDN=CDN-in-a-Box
 TO_URL="https://$TO_FQDN:$TO_PORT"
-to-enroll tm $CDN || (while true; do echo "enroll failed."; sleep 3 ; done)
+to-enroll tm $CDN_NAME || (while true; do echo "enroll failed."; sleep 3 ; done)
 
 # Configure Traffic Monitor
 cat > /opt/traffic_monitor/conf/traffic_ops.cfg <<- ENDOFMESSAGE
@@ -69,7 +73,7 @@ cat > /opt/traffic_monitor/conf/traffic_ops.cfg <<- ENDOFMESSAGE
 	"password": "$TM_PASSWORD",
 	"url": "$TO_URL",
 	"insecure": true,
-	"cdnName": "$CDN",
+	"cdnName": "$CDN_NAME",
 	"httpListener": ":$TM_PORT"
 }
 ENDOFMESSAGE
@@ -100,7 +104,7 @@ export TO_PASSWORD=$TO_ADMIN_PASSWORD
 touch /opt/traffic_monitor/var/log/traffic_monitor.log
 
 # Do not start until there is a valid CRConfig available
-until [ $(to-get '/CRConfig-Snapshots/CDN-in-a-Box/CRConfig.json' 2>/dev/null | jq -c -e '.config|length') -gt 0 ] ; do 
+until [ $(to-get "/CRConfig-Snapshots/$CDN_NAME/CRConfig.json" 2>/dev/null | jq -c -e '.config|length') -gt 0 ] ; do
 	echo "Waiting on valid CRConfig..."; 
   	sleep 3; 
 done

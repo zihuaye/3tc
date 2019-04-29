@@ -26,7 +26,7 @@
 # docker run --name my-traffic-router --hostname my-traffic-router --net cdnet --env TRAFFIC_OPS_URI=http://my-traffic-ops:3000 --env TRAFFIC_OPS_USER=superroot --env TRAFFIC_OPS_PASS=supersecreterpassward --env TRAFFIC_MONITORS="my-traffic-monitor-0:80;my-traffic-monitor-1:80" --env ORIGIN_URI="http://my-hotair.cdnet" --detach traffic_router:1.4
 
 FROM centos:7
-MAINTAINER Dan Kirkwood
+MAINTAINER dev@trafficcontrol.apache.org
 
 # Default values for TMCAT RPM and RPM -- override with `docker build --build-arg JDK=...'
 ARG RPM=traffic_router.rpm
@@ -35,6 +35,8 @@ ARG TC_REPO=traffic-control.repo
 ADD $TMCAT /
 ADD $RPM /
 ADD $TC_REPO /etc/yum.repos.d/
+ADD starttr.sh /
+ADD shutdowntr.sh /
 
 ### Common for all sub-component builds
 RUN	yum -y install \

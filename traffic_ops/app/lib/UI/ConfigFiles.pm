@@ -30,6 +30,7 @@ use URI;
 my $dispatch_table ||= {
 	"logs_xml.config"         => sub { logs_xml_dot_config(@_) },
 	"logging.config"		  => sub { logging_dot_config(@_) },
+	"logging.yaml"		  	  => sub { logging_dot_yaml(@_) },
 	"cacheurl.config"         => sub { cacheurl_dot_config(@_) },
 	"records.config"          => sub { generic_config(@_) },
 	"plugin.config"           => sub { generic_config(@_) },
@@ -643,6 +644,64 @@ sub facts {
 	return $text;
 }
 
+sub logging_dot_yaml {
+	my $self     = shift;
+	my $id       = shift;
+	my $filename = shift;
+
+	my $server = $self->server_data($id);
+	my $data   = $self->param_data( $server, $filename );
+
+	my $text   = "# Generated for " . $server->host_name . " by " . &name_version_string($self) . " - Do not edit!! \n";
+
+	my $max_log_objects = 10;
+	for ( my $i = 0; $i < $max_log_objects; $i = $i + 1 ) {
+		my $log_format_field = "LogFormat";
+		my $log_object_field = "LogObject";
+		if ( $i > 0 ) {
+			$log_format_field = $log_format_field . "$i";
+			$log_object_field = $log_object_field . "$i";
+		}
+
+		my $log_format_name = $data->{$log_format_field . ".Name"} || "";
+		if ( length($log_format_name) > 0 ) {
+			my $format = $data->{$log_format_field . ".Format"};
+			$text .= "formats: \n";
+			$text .= " - name: " . $log_format_name ." \n";
+			$text .= "   format: '" . $format . "'\n";
+		}
+
+		my $log_object_filename = $data->{$log_object_field . ".Filename"} || "";
+		if ( length($log_object_filename) > 0 ) {
+			my $log_object_format               = $data->{$log_object_field . ".Format"}             || "";
+			my $log_object_rolling_enabled      = $data->{$log_object_field . ".RollingEnabled"}     || "";
+			my $log_object_rolling_interval_sec = $data->{$log_object_field . ".RollingIntervalSec"} || "";
+			my $log_object_rolling_offset_hr    = $data->{$log_object_field . ".RollingOffsetHr"}    || "";
+			my $log_object_rolling_size_mb      = $data->{$log_object_field . ".RollingSizeMb"}      || "";
+			my $log_object_header               = $data->{$log_object_field . ".Header"}             || "";
+
+			$text .= "\nlogs:\n";
+			$text .= "- mode: ascii\n";
+			$text .= "  filename: " . $log_object_filename ."\n";
+			$text .= "  format: ". $log_format_name . "\n";
+			if ($log_object_rolling_enabled ne ""){
+				$text .= "  rolling_enabled: ". $log_object_rolling_enabled . "\n";
+			}
+			if ($log_object_rolling_interval_sec ne "") {
+				$text .= "  rolling_interval_sec: ". $log_object_rolling_interval_sec . "\n";
+			}
+			if ($log_object_rolling_offset_hr ne "") {
+				$text .= "  rolling_offset_hr: ". $log_object_rolling_offset_hr . "\n";
+			}
+			if ($log_object_rolling_size_mb ne "") {
+				$text .= "  rolling_size_mb: ". $log_object_rolling_size_mb . "\n";
+			}
+		}
+	}
+
+	return $text;
+}
+
 sub logging_dot_config {
 	my $self     = shift;
 	my $id       = shift;
@@ -1054,7 +1113,7 @@ sub remap_dot_config {
 				$mid_remap{ $remap->{org} } .= " \@plugin=header_rewrite.so \@pparam=" . $remap->{mid_hdr_rw_file};
 			}
 			if ( $remap->{qstring_ignore} == 1 ) {
-				$mid_remap{ $remap->{org} } .= UI::DeliveryService::get_qstring_ignore_remap(UI::DeliveryService::get_ats_major_version($self, $server));
+				$mid_remap{ $remap->{org} } .= UI::DeliveryService::get_qstring_ignore_remap(UI::DeliveryService::get_ats_major_version($self, $server), $remap->{range_request_handling});
 			}
 			if ( defined( $remap->{cacheurl} ) && $remap->{cacheurl} ne "" ) {
 				$mid_remap{ $remap->{org} } .= " \@plugin=cacheurl.so \@pparam=" . $remap->{cacheurl_file};
@@ -1133,7 +1192,7 @@ sub build_remap_line {
 		}
 		else {
 			#If we are on ats 6 and later we want to use the cachekey plugin, otherwise we have to use cacheurl
-			$text .= UI::DeliveryService::get_qstring_ignore_remap(UI::DeliveryService::get_ats_major_version($self, $server));
+			$text .= UI::DeliveryService::get_qstring_ignore_remap(UI::DeliveryService::get_ats_major_version($self, $server), $remap->{range_request_handling});
 		}
 	}
 	if ( defined( $remap->{cacheurl} ) && $remap->{cacheurl} ne "" ) {

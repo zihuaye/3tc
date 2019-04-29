@@ -131,6 +131,8 @@ A table showing the results of the periodic :ref:`to-check-ext` that are run. Th
 :Connections: Number of connections to this :term:`cache server` or :term:`Cache Group`
 :MbpsOut:     Data flow rate outward from the CDN (toward client) in Megabits per second
 
+.. _tp-services:
+
 Services
 ========
 :guilabel:`Services` groups the functionality to modify :term:`Delivery Service`\ s - for those users with the necessary permissions - or make Requests for such changes - for uses without necessary permissions.
@@ -195,6 +197,9 @@ This page contains a table displaying all :term:`Delivery Service`\ s visible to
 - create, update and delete :term:`Delivery Service` regular expressions
 - view and create :term:`Delivery Service` invalidate content jobs
 - manage steering targets
+- view and manage static DNS records within a :term:`Delivery Service` subdomain
+
+	.. seealso:: :ref:`static-dns-qht`
 
 Delivery Service Requests
 -------------------------
@@ -266,11 +271,12 @@ A table of all servers (of all kinds) across all :term:`Delivery Service`\ s and
 
 	.. seealso:: :ref:`health-proto`
 
-:Type:        The type of server e.g. EDGE for an Edge-tier :term:`cache server`
-:Profile:     The name of the server's :term:`Profile`
-:CDN:         The name of the CDN to which this server is assigned (if any)
-:Cache Group: The name of the :term:`Cache Group` to which this server belongs
-:ILO:         If not empty, this is the IPv4 address of the server's :abbr:`ILO (Integrated Lights-Out)` interface
+:Type:        	The type of server e.g. EDGE for an Edge-tier :term:`cache server`
+:Profile:     	The name of the server's :term:`Profile`
+:CDN:         	The name of the CDN to which this server is assigned (if any)
+:Cache Group: 	The name of the :term:`Cache Group` to which this server belongs
+:Phys Location:	The name of the :term:`Physical Location` to which this server belongs
+:ILO:         	If not empty, this is the IPv4 address of the server's :abbr:`ILO (Integrated Lights-Out)` interface
 
 	.. seealso:: `Hewlett Packard ILO Wikipedia Page <https://en.wikipedia.org/wiki/HP_Integrated_Lights-Out>`_
 

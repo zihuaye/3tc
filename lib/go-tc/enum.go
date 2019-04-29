@@ -495,8 +495,6 @@ func (t DSType) IsHTTP() bool {
 // IsDNS returns whether the DSType is a DNS category.
 func (t DSType) IsDNS() bool {
 	switch t {
-	case DSTypeHTTPNoCache:
-		fallthrough
 	case DSTypeDNS:
 		fallthrough
 	case DSTypeDNSLive:
@@ -513,8 +511,6 @@ func (t DSType) IsSteering() bool {
 	case DSTypeSteering:
 		fallthrough
 	case DSTypeClientSteering:
-		fallthrough
-	case DSTypeDNSLive:
 		return true
 	}
 	return false

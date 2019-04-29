@@ -140,21 +140,15 @@ func (dss *TODeliveryServiceServer) readDSS(tx *sqlx.Tx, user *auth.CurrentUser,
 		orderby = "deliveryService"
 	}
 
-	tenancyEnabled, err := tenant.IsTenancyEnabledTx(tx.Tx)
+	tenantIDs, err := tenant.GetUserTenantIDListTx(tx.Tx, user.TenantID)
 	if err != nil {
-		return nil, errors.New("checking if tenancy is enabled: " + err.Error())
+		return nil, errors.New("getting user tenant ID list: " + err.Error())
 	}
-	if tenancyEnabled {
-		tenantIDs, err := tenant.GetUserTenantIDListTx(tx.Tx, user.TenantID)
-		if err != nil {
-			return nil, errors.New("getting user tenant ID list: " + err.Error())
-		}
-		for _, id := range tenantIDs {
-			dss.TenantIDs = append(dss.TenantIDs, int64(id))
-		}
+	for _, id := range tenantIDs {
+		dss.TenantIDs = append(dss.TenantIDs, int64(id))
 	}
 
-	query, err := selectQuery(orderby, strconv.Itoa(limit), strconv.Itoa(offset), tenancyEnabled)
+	query, err := selectQuery(orderby, strconv.Itoa(limit), strconv.Itoa(offset))
 	if err != nil {
 		return nil, errors.New("creating query for DeliveryserviceServers: " + err.Error())
 	}
@@ -176,7 +170,7 @@ func (dss *TODeliveryServiceServer) readDSS(tx *sqlx.Tx, user *auth.CurrentUser,
 	return &tc.DeliveryServiceServerResponse{orderby, servers, page, limit}, nil
 }
 
-func selectQuery(orderBy string, limit string, offset string, useTenancy bool) (string, error) {
+func selectQuery(orderBy string, limit string, offset string) (string, error) {
 	selectStmt := `SELECT
 	s.deliveryService,
 	s.server,
@@ -198,12 +192,10 @@ func selectQuery(orderBy string, limit string, offset string, useTenancy bool) (
 	}
 
 	// TODO refactor to use dbhelpers.AddTenancyCheck
-	if useTenancy {
-		selectStmt += `
+	selectStmt += `
 JOIN deliveryservice d on s.deliveryservice = d.id
 WHERE d.tenant_id = ANY(CAST(:accessibleTenants AS bigint[]))
 `
-	}
 
 	if orderBy != "" {
 		selectStmt += ` ORDER BY ` + orderBy
@@ -295,7 +287,7 @@ func GetReplaceHandler(w http.ResponseWriter, r *http.Request) {
 		respServers = append(respServers, server)
 	}
 
-	if err := deliveryservice.EnsureParams(inf.Tx.Tx, *dsId, ds.Name, ds.EdgeHeaderRewrite, ds.MidHeaderRewrite, ds.RegexRemap, ds.CacheURL, ds.SigningAlgorithm, ds.Type); err != nil {
+	if err := deliveryservice.EnsureParams(inf.Tx.Tx, *dsId, ds.Name, ds.EdgeHeaderRewrite, ds.MidHeaderRewrite, ds.RegexRemap, ds.CacheURL, ds.SigningAlgorithm, ds.Type, ds.MaxOriginConnections); err != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("deliveryservice_server replace ensuring ds parameters: "+err.Error()))
 		return
 	}
@@ -361,7 +353,7 @@ func GetCreateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := deliveryservice.EnsureParams(inf.Tx.Tx, ds.ID, ds.Name, ds.EdgeHeaderRewrite, ds.MidHeaderRewrite, ds.RegexRemap, ds.CacheURL, ds.SigningAlgorithm, ds.Type); err != nil {
+	if err := deliveryservice.EnsureParams(inf.Tx.Tx, ds.ID, ds.Name, ds.EdgeHeaderRewrite, ds.MidHeaderRewrite, ds.RegexRemap, ds.CacheURL, ds.SigningAlgorithm, ds.Type, ds.MaxOriginConnections); err != nil {
 		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("deliveryservice_server replace ensuring ds parameters: "+err.Error()))
 		return
 	}
@@ -564,14 +556,15 @@ func updateQuery() string {
 }
 
 type DSInfo struct {
-	ID                int
-	Name              string
-	Type              tc.DSType
-	EdgeHeaderRewrite *string
-	MidHeaderRewrite  *string
-	RegexRemap        *string
-	SigningAlgorithm  *string
-	CacheURL          *string
+	ID                   int
+	Name                 string
+	Type                 tc.DSType
+	EdgeHeaderRewrite    *string
+	MidHeaderRewrite     *string
+	RegexRemap           *string
+	SigningAlgorithm     *string
+	CacheURL             *string
+	MaxOriginConnections *int
 }
 
 // GetDSInfo loads the DeliveryService fields needed by Delivery Service Servers from the database, from the ID. Returns the data, whether the delivery service was found, and any error.
@@ -584,7 +577,8 @@ SELECT
   ds.mid_header_rewrite,
   ds.regex_remap,
   ds.signing_algorithm,
-  ds.cacheurl
+  ds.cacheurl,
+  ds.max_origin_connections
 FROM
   deliveryservice ds
   JOIN type tp ON ds.type = tp.id
@@ -592,7 +586,7 @@ WHERE
   ds.id = $1
 `
 	di := DSInfo{ID: id}
-	if err := tx.QueryRow(qry, id).Scan(&di.Name, &di.Type, &di.EdgeHeaderRewrite, &di.MidHeaderRewrite, &di.RegexRemap, &di.SigningAlgorithm, &di.CacheURL); err != nil {
+	if err := tx.QueryRow(qry, id).Scan(&di.Name, &di.Type, &di.EdgeHeaderRewrite, &di.MidHeaderRewrite, &di.RegexRemap, &di.SigningAlgorithm, &di.CacheURL, &di.MaxOriginConnections); err != nil {
 		if err == sql.ErrNoRows {
 			return DSInfo{}, false, nil
 		}
@@ -612,7 +606,8 @@ SELECT
   ds.mid_header_rewrite,
   ds.regex_remap,
   ds.signing_algorithm,
-  ds.cacheurl
+  ds.cacheurl,
+  ds.max_origin_connections
 FROM
   deliveryservice ds
   JOIN type tp ON ds.type = tp.id
@@ -620,7 +615,7 @@ WHERE
   ds.xml_id = $1
 `
 	di := DSInfo{Name: dsName}
-	if err := tx.QueryRow(qry, dsName).Scan(&di.ID, &di.Type, &di.EdgeHeaderRewrite, &di.MidHeaderRewrite, &di.RegexRemap, &di.SigningAlgorithm, &di.CacheURL); err != nil {
+	if err := tx.QueryRow(qry, dsName).Scan(&di.ID, &di.Type, &di.EdgeHeaderRewrite, &di.MidHeaderRewrite, &di.RegexRemap, &di.SigningAlgorithm, &di.CacheURL, &di.MaxOriginConnections); err != nil {
 		if err == sql.ErrNoRows {
 			return DSInfo{}, false, nil
 		}

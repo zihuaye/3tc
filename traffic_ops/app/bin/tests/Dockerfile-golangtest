@@ -11,8 +11,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM golang:1.9.4
-MAINTAINER Dan Kirkwood <dangogh@apache.org>
+FROM golang:1.11
+MAINTAINER dev@trafficcontrol.apache.org
 ARG DIR=github.com/apache/trafficcontrol
 
 ADD traffic_ops /go/src/$DIR/traffic_ops

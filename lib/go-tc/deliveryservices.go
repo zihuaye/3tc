@@ -73,17 +73,18 @@ type DeleteDeliveryServiceResponse struct {
 }
 
 type DeliveryService struct {
-	DeliveryServiceV12
+	DeliveryServiceV13
+	MaxOriginConnections int `json:"maxOriginConnections" db:"max_origin_connections"`
+}
+
+type DeliveryServiceV13 struct {
+	DeliveryServiceV11
 	DeepCachingType   DeepCachingType `json:"deepCachingType"`
 	FQPacingRate      int             `json:"fqPacingRate,omitempty"`
 	SigningAlgorithm  string          `json:"signingAlgorithm" db:"signing_algorithm"`
 	Tenant            string          `json:"tenant,omitempty"`
 	TRRequestHeaders  string          `json:"trRequestHeaders,omitempty"`
 	TRResponseHeaders string          `json:"trResponseHeaders,omitempty"`
-}
-
-type DeliveryServiceV12 struct {
-	DeliveryServiceV11
 }
 
 // DeliveryService ...
@@ -146,13 +147,19 @@ type DeliveryServiceV11 struct {
 }
 
 type DeliveryServiceNullable struct {
+	DeliveryServiceNullableV13
+	ConsistentHashRegex  *string `json:"consistentHashRegex"`
+	MaxOriginConnections *int    `json:"maxOriginConnections" db:"max_origin_connections"`
+}
+
+type DeliveryServiceNullableV13 struct {
 	DeliveryServiceNullableV12
 	DeepCachingType   *DeepCachingType `json:"deepCachingType" db:"deep_caching_type"`
-	FQPacingRate      *int             `json:"fqPacingRate,omitempty"`
+	FQPacingRate      *int             `json:"fqPacingRate"`
 	SigningAlgorithm  *string          `json:"signingAlgorithm" db:"signing_algorithm"`
-	Tenant            *string          `json:"tenant,omitempty"`
-	TRResponseHeaders *string          `json:"trResponseHeaders,omitempty"`
-	TRRequestHeaders  *string          `json:"trRequestHeaders,omitempty"`
+	Tenant            *string          `json:"tenant"`
+	TRResponseHeaders *string          `json:"trResponseHeaders"`
+	TRRequestHeaders  *string          `json:"trRequestHeaders"`
 }
 
 type DeliveryServiceNullableV12 struct {
@@ -224,7 +231,15 @@ type DeliveryServiceNullableV11 struct {
 
 // NewDeliveryServiceNullableFromV12 creates a new V13 DS from a V12 DS, filling new fields with appropriate defaults.
 func NewDeliveryServiceNullableFromV12(ds DeliveryServiceNullableV12) DeliveryServiceNullable {
-	newDS := DeliveryServiceNullable{DeliveryServiceNullableV12: ds}
+	newDSv13 := DeliveryServiceNullableV13{DeliveryServiceNullableV12: ds}
+	newDS := DeliveryServiceNullable{DeliveryServiceNullableV13: newDSv13}
+	newDS.Sanitize()
+	return newDS
+}
+
+// NewDeliveryServiceNullableFromV13 creates a new V14 DS from a V13 DS, filling new fields with appropriate defaults.
+func NewDeliveryServiceNullableFromV13(ds DeliveryServiceNullableV13) DeliveryServiceNullable {
+	newDS := DeliveryServiceNullable{DeliveryServiceNullableV13: ds}
 	newDS.Sanitize()
 	return newDS
 }
@@ -397,6 +412,9 @@ func (ds *DeliveryServiceNullable) Sanitize() {
 	}
 	if !ds.Signed && ds.SigningAlgorithm != nil && *ds.SigningAlgorithm == signedAlgorithm {
 		ds.Signed = true
+	}
+	if ds.MaxOriginConnections == nil || *ds.MaxOriginConnections < 0 {
+		ds.MaxOriginConnections = util.IntPtr(0)
 	}
 	if ds.DeepCachingType == nil {
 		s := DeepCachingType("")

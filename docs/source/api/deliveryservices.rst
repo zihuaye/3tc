@@ -60,6 +60,7 @@ Response Structure
 :cdnId:                    The integral, unique identifier of the CDN to which the :term:`Delivery Service` belongs
 :cdnName:                  Name of the CDN to which the :term:`Delivery Service` belongs
 :checkPath:                The path portion of the URL to check connections to this :term:`Delivery Service`'s origin server
+:consistentHashRegex:      If defined, this is a regex used for the Pattern-Based Consistent Hashing feature. It is only applicable for HTTP and Steering Delivery Services
 :displayName:              The display name of the :term:`Delivery Service`
 :dnsBypassCname:           Domain name to overflow requests for HTTP :term:`Delivery Service`\ s - bypass starts when the traffic on this :term:`Delivery Service` exceeds ``globalMaxMbps``, or when more than ``globalMaxTps`` is being exceeded within the :term:`Delivery Service`\ [4]_
 :dnsBypassIp:              The IPv4 IP to use for bypass on a DNS :term:`Delivery Service` - bypass starts when the traffic on this :term:`Delivery Service` exceeds ``globalMaxMbps``, or when more than ``globalMaxTps`` is being exceeded within the :term:`Delivery Service`\ [4]_
@@ -116,6 +117,10 @@ Response Structure
 			Use the :term:`Delivery Service` if ``pattern`` matches the ``xml_id`` of one of this :term:`Delivery Service`'s "Steering" target :term:`Delivery Service`\ s
 
 :maxDnsAnswers:    The maximum number of IPs to put in responses to A/AAAA DNS record requests (0 means all available)\ [4]_
+:maxOriginConnections:      The maximum number of connections allowed to the origin (0 means no maximum).
+
+	.. versionadded:: 1.4
+
 :midHeaderRewrite: Rewrite operations to be performed on TCP headers at the Edge-tier cache level - used by the Header Rewrite Apache Trafficserver plugin
 :missLat:          The latitude to use when the client cannot be found in the CZF or a geographic IP lookup
 :missLong:         The longitude to use when the client cannot be found in the CZF or a geographic IP lookup
@@ -180,12 +185,12 @@ Response Structure
 
 	.. warning:: This number will not be correct if keys are manually replaced using the API, as the key generation API does not increment it!
 
-:tenantId:          The integral, unique identifier of the tenant who owns this :term:`Delivery Service`
-:trRequestHeaders:  If defined, this takes the form of a string of HTTP headers to be included in Traffic Router access logs for requests - it's a template where ``__RETURN__`` translates to a carriage return and line feed (``\r\n``)\ [2]_
-:trResponseHeaders: If defined, this takes the form of a string of HTTP headers to be included in Traffic Router responses - it's a template where ``__RETURN__`` translates to a carriage return and line feed (``\r\n``)\ [2]_
-:type:              The name of the routing type of this :term:`Delivery Service` e.g. "HTTP"
-:typeId:            The integral, unique identifier of the routing type of this :term:`Delivery Service`
-:xmlId:             A unique string that describes this :term:`Delivery Service` - exists for legacy reasons
+:tenantId:            The integral, unique identifier of the tenant who owns this :term:`Delivery Service`
+:trRequestHeaders:    If defined, this takes the form of a string of HTTP headers to be included in Traffic Router access logs for requests - it's a template where ``__RETURN__`` translates to a carriage return and line feed (``\r\n``)\ [2]_
+:trResponseHeaders:   If defined, this takes the form of a string of HTTP headers to be included in Traffic Router responses - it's a template where ``__RETURN__`` translates to a carriage return and line feed (``\r\n``)\ [2]_
+:type:                The name of the routing type of this :term:`Delivery Service` e.g. "HTTP"
+:typeId:              The integral, unique identifier of the routing type of this :term:`Delivery Service`
+:xmlId:               A unique string that describes this :term:`Delivery Service` - exists for legacy reasons
 
 .. code-block:: http
 	:caption: Response Example
@@ -242,6 +247,7 @@ Response Structure
 			}
 		],
 		"maxDnsAnswers": null,
+		"maxOriginConnections": 0,
 		"midHeaderRewrite": null,
 		"missLat": 42,
 		"missLong": -88,
@@ -297,6 +303,7 @@ Request Structure
 :ccrDnsTtl:                The Time To Live (TTL) in seconds of the DNS response for A or AAAA record queries requesting the IP address of the Traffic Router - named "ccrDnsTtl" for legacy reasons
 :cdnId:                    The integral, unique identifier for the CDN to which this :term:`Delivery Service`\ shall be assigned
 :checkPath:                The path portion of the URL which will be used to check connections to this :term:`Delivery Service`'s origin server
+:consistentHashRegex:      If defined, this is a regex used for the Pattern-Based Consistent Hashing feature. It is only applicable for HTTP and Steering Delivery Services
 :deepCachingType:          A string describing when to do Deep Caching for this :term:`Delivery Service`:
 
 	NEVER
@@ -343,6 +350,10 @@ Request Structure
 :longDesc1:          An optional field used when more detailed information that that provided by ``longDesc`` is desired
 :longDesc2:          An optional field used when even more detailed information that that provided by either ``longDesc`` or ``longDesc1`` is desired
 :maxDnsAnswers:      An optional field which, when present, specifies the maximum number of IPs to put in responses to A/AAAA DNS record requests - defaults to 0, meaning "no limit"\ [4]_
+:maxOriginConnections:      The maximum number of connections allowed to the origin (0 means no maximum).
+
+	.. versionadded:: 1.4
+
 :midHeaderRewrite:   An optional string containing rewrite operations to be performed on TCP headers at the Edge-tier cache level - used by the Header Rewrite Apache Trafficserver plugin
 :missLat:            The latitude to use when the client cannot be found in the CZF or a geographic IP lookup\ [7]_
 :missLong:           The longitude to use when the client cannot be found in the CZF or a geographic IP lookup\ [7]_
@@ -406,11 +417,11 @@ Request Structure
 
 	.. warning:: This number will not be correct if keys are manually replaced using the API, as the key generation API does not increment it!
 
-:tenantId:          An optional, integral, unique identifier of the tenant who will own this :term:`Delivery Service`
-:trRequestHeaders:  If defined, this takes the form of a string of HTTP headers to be included in Traffic Router access logs for requests - it's a template where ``__RETURN__`` translates to a carriage return and line feed (``\r\n``)\ [2]_
-:trResponseHeaders: If defined, this takes the form of a string of HTTP headers to be included in Traffic Router responses - it's a template where ``__RETURN__`` translates to a carriage return and line feed (``\r\n``)\ [2]_
-:typeId:            The integral, unique identifier for the routing type of this :term:`Delivery Service`
-:xmlId:             A unique string that describes this :term:`Delivery Service` - exists for legacy reasons
+:tenantId:            An optional, integral, unique identifier of the tenant who will own this :term:`Delivery Service`
+:trRequestHeaders:    If defined, this takes the form of a string of HTTP headers to be included in Traffic Router access logs for requests - it's a template where ``__RETURN__`` translates to a carriage return and line feed (``\r\n``)\ [2]_
+:trResponseHeaders:   If defined, this takes the form of a string of HTTP headers to be included in Traffic Router responses - it's a template where ``__RETURN__`` translates to a carriage return and line feed (``\r\n``)\ [2]_
+:typeId:              The integral, unique identifier for the routing type of this :term:`Delivery Service`
+:xmlId:               A unique string that describes this :term:`Delivery Service` - exists for legacy reasons
 
 	.. note:: This should almost never be different from the :term:`Delivery Service`'s ``displayName``
 
@@ -446,6 +457,7 @@ Request Structure
 		"longDesc": "A :term:`Delivery Service` created expressly for API documentation examples",
 		"missLat": -1,
 		"missLong": -1,
+		"maxOriginConnections": 0,
 		"multiSiteOrigin": false,
 		"orgServerFqdn": "http://origin.infra.ciab.test",
 		"protocol": 0,
@@ -477,6 +489,7 @@ Response Structure
 :cdnId:                    The integral, unique identifier of the CDN to which the :term:`Delivery Service` belongs
 :cdnName:                  Name of the CDN to which the :term:`Delivery Service` belongs
 :checkPath:                The path portion of the URL to check connections to this :term:`Delivery Service`'s origin server
+:consistentHashRegex:      If defined, this is a regex used for the Pattern-Based Consistent Hashing feature. It is only applicable for HTTP and Steering Delivery Services
 :displayName:              The display name of the :term:`Delivery Service`
 :dnsBypassCname:           Domain name to overflow requests for HTTP :term:`Delivery Service`\ s - bypass starts when the traffic on this :term:`Delivery Service` exceeds ``globalMaxMbps``, or when more than ``globalMaxTps`` is being exceeded within the :term:`Delivery Service`\ [4]_
 :dnsBypassIp:              The IPv4 IP to use for bypass on a DNS :term:`Delivery Service` - bypass starts when the traffic on this :term:`Delivery Service` exceeds ``globalMaxMbps``, or when more than ``globalMaxTps`` is being exceeded within the :term:`Delivery Service`\ [4]_
@@ -533,6 +546,10 @@ Response Structure
 			Use the :term:`Delivery Service` if ``pattern`` matches the ``xml_id`` of one of this :term:`Delivery Service`'s "Steering" target :term:`Delivery Service`\ s
 
 :maxDnsAnswers:    The maximum number of IPs to put in responses to A/AAAA DNS record requests (0 means all available)\ [4]_
+:maxOriginConnections:      The maximum number of connections allowed to the origin (0 means no maximum).
+
+	.. versionadded:: 1.4
+
 :midHeaderRewrite: Rewrite operations to be performed on TCP headers at the Edge-tier cache level - used by the Header Rewrite Apache Trafficserver plugin
 :missLat:          The latitude to use when the client cannot be found in the CZF or a geographic IP lookup
 :missLong:         The longitude to use when the client cannot be found in the CZF or a geographic IP lookup
@@ -665,6 +682,7 @@ Response Structure
 				}
 			],
 			"maxDnsAnswers": null,
+			"maxOriginConnections": 0,
 			"midHeaderRewrite": null,
 			"missLat": -1,
 			"missLong": -1,

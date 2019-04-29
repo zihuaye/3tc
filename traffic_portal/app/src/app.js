@@ -34,6 +34,7 @@ var trafficPortal = angular.module('trafficPortal', [
         'ngRoute',
         'ui.router',
         'ui.bootstrap',
+        'ui.bootstrap.contextMenu',
         'restangular',
         'app.templates',
         'angular-jwt',
@@ -103,6 +104,7 @@ var trafficPortal = angular.module('trafficPortal', [
         require('./modules/private/deliveryServices/charts').name,
         require('./modules/private/deliveryServices/charts/view').name,
         require('./modules/private/deliveryServices/compare').name,
+        require('./modules/private/deliveryServices/consistentHashRegex').name,
         require('./modules/private/deliveryServices/edit').name,
         require('./modules/private/deliveryServices/list').name,
         require('./modules/private/deliveryServices/new').name,
@@ -261,6 +263,7 @@ var trafficPortal = angular.module('trafficPortal', [
         require('./common/modules/form/deliveryService/clone').name,
         require('./common/modules/form/deliveryService/edit').name,
         require('./common/modules/form/deliveryService/new').name,
+        require('./common/modules/form/deliveryServiceConsistentHashRegex').name,
         require('./common/modules/form/deliveryServiceRegex').name,
         require('./common/modules/form/deliveryServiceRegex/edit').name,
         require('./common/modules/form/deliveryServiceRegex/new').name,
@@ -412,7 +415,7 @@ var trafficPortal = angular.module('trafficPortal', [
 
     ], App)
 
-        .config(function($stateProvider, $logProvider, $controllerProvider, RestangularProvider, momentPickerProvider, ENV) {
+        .config(function($stateProvider, $logProvider, RestangularProvider, momentPickerProvider, ENV) {
 
             momentPickerProvider.options({
                 minutesStep: 1,
@@ -433,7 +436,6 @@ var trafficPortal = angular.module('trafficPortal', [
                 }
             });
 
-            $controllerProvider.allowGlobals();
             $logProvider.debugEnabled(true);
             $stateProvider
                 .state('trafficPortal', {

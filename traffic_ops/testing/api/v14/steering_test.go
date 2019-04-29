@@ -17,19 +17,15 @@ package v14
 
 import (
 	"testing"
-
-	"github.com/apache/trafficcontrol/lib/go-log"
 )
 
 func TestSteering(t *testing.T) {
-	WithObjs(t, []TCObj{CDNs, Types, Tenants, Parameters, Profiles, Statuses, Divisions, Regions, PhysLocations, CacheGroups, Servers, DeliveryServices, SteeringTargets}, func() {
+	WithObjs(t, []TCObj{CDNs, Types, Tenants, Parameters, Profiles, Statuses, Divisions, Regions, PhysLocations, CacheGroups, Servers, DeliveryServices, Users, SteeringTargets}, func() {
 		GetTestSteering(t)
 	})
 }
 
 func GetTestSteering(t *testing.T) {
-	log.Debugln("GetTestSteering")
-
 	if len(testData.SteeringTargets) < 1 {
 		t.Errorf("get steering: no steering target test data\n")
 	}
@@ -68,5 +64,4 @@ func GetTestSteering(t *testing.T) {
 	if steerings[0].Targets[0].Latitude != nil {
 		t.Errorf("steering get: Targets Order expected %v actual %+v\n", nil, *steerings[0].Targets[0].Latitude)
 	}
-	log.Debugln("GetTestSteering() PASSED")
 }
