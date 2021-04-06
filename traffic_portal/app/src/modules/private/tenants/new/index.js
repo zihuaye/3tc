@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -21,13 +21,16 @@ module.exports = angular.module('trafficPortal.private.tenants.new', [])
     .config(function($stateProvider, $urlRouterProvider) {
         $stateProvider
             .state('trafficPortal.private.tenants.new', {
-                url: '/new',
+                url: '/new?parentId',
                 views: {
                     tenantsContent: {
                         templateUrl: 'common/modules/form/tenant/form.tenant.tpl.html',
                         controller: 'FormNewTenantController',
                         resolve: {
-                            tenant: function() {
+                            tenant: function($stateParams) {
+                                if ($stateParams.parentId) {
+                                    return { parentId: parseInt($stateParams.parentId, 10) };
+                                }
                                 return {};
                             }
                         }

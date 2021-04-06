@@ -20,8 +20,10 @@ package cdn
  */
 
 import (
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/lib/go-tc/tovalidate"
@@ -39,23 +41,34 @@ type TOCDN struct {
 	tc.CDNNullable
 }
 
+func (v *TOCDN) GetLastUpdated() (*time.Time, bool, error) {
+	return api.GetLastUpdated(v.APIInfo().Tx, *v.ID, "cdn")
+}
+
+func (v *TOCDN) SelectMaxLastUpdatedQuery(where, orderBy, pagination, tableName string) string {
+	return `SELECT max(t) from (
+		SELECT max(last_updated) as t from ` + tableName + ` c ` + where + orderBy + pagination +
+		` UNION ALL
+	select max(last_updated) as t from last_deleted l where l.table_name='` + tableName + `') as res`
+}
+
 func (v *TOCDN) SetLastUpdated(t tc.TimeNoMod) { v.LastUpdated = &t }
 func (v *TOCDN) InsertQuery() string           { return insertQuery() }
 func (v *TOCDN) NewReadObj() interface{}       { return &tc.CDNNullable{} }
 func (v *TOCDN) SelectQuery() string           { return selectQuery() }
 func (v *TOCDN) ParamColumns() map[string]dbhelpers.WhereColumnInfo {
 	return map[string]dbhelpers.WhereColumnInfo{
-		"domainName":    dbhelpers.WhereColumnInfo{"domain_name", nil},
-		"dnssecEnabled": dbhelpers.WhereColumnInfo{"dnssec_enabled", nil},
-		"id":            dbhelpers.WhereColumnInfo{"id", api.IsInt},
-		"name":          dbhelpers.WhereColumnInfo{"name", nil},
+		"domainName":    dbhelpers.WhereColumnInfo{Column: "domain_name"},
+		"dnssecEnabled": dbhelpers.WhereColumnInfo{Column: "dnssec_enabled"},
+		"id":            dbhelpers.WhereColumnInfo{Column: "id", Checker: api.IsInt},
+		"name":          dbhelpers.WhereColumnInfo{Column: "name"},
 	}
 }
 func (v *TOCDN) UpdateQuery() string { return updateQuery() }
 func (v *TOCDN) DeleteQuery() string { return deleteQuery() }
 
 func (cdn TOCDN) GetKeyFieldsInfo() []api.KeyFieldInfo {
-	return []api.KeyFieldInfo{{"id", api.GetIntKey}}
+	return []api.KeyFieldInfo{{Field: "id", Func: api.GetIntKey}}
 }
 
 //Implementation of the Identifier, Validator interface functions
@@ -123,11 +136,14 @@ func (cdn *TOCDN) Create() (error, error, int) {
 	return api.GenericCreate(cdn)
 }
 
-func (cdn *TOCDN) Read() ([]interface{}, error, error, int) { return api.GenericRead(cdn) }
+func (cdn *TOCDN) Read(h http.Header, useIMS bool) ([]interface{}, error, error, int, *time.Time) {
+	api.DefaultSort(cdn.APIInfo(), "name")
+	return api.GenericRead(h, cdn, useIMS)
+}
 
-func (cdn *TOCDN) Update() (error, error, int) {
+func (cdn *TOCDN) Update(h http.Header) (error, error, int) {
 	*cdn.DomainName = strings.ToLower(*cdn.DomainName)
-	return api.GenericUpdate(cdn)
+	return api.GenericUpdate(h, cdn)
 }
 
 func (cdn *TOCDN) Delete() (error, error, int) { return api.GenericDelete(cdn) }

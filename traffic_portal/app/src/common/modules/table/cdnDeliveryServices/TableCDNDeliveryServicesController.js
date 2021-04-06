@@ -17,25 +17,13 @@
  * under the License.
  */
 
-var TableCDNDeliveryServicesController = function(cdn, deliveryServices, $controller, $scope) {
+var TableCDNDeliveryServicesController = function(cdn, deliveryServices, filter, $controller, $scope) {
 
 	// extends the TableDeliveryServicesController to inherit common methods
-	angular.extend(this, $controller('TableDeliveryServicesController', { deliveryServices: deliveryServices, $scope: $scope }));
+	angular.extend(this, $controller('TableDeliveryServicesController', { tableName: 'cdnDS', deliveryServices: deliveryServices, filter: filter, $scope: $scope }));
 
 	$scope.cdn = cdn;
-
-	angular.element(document).ready(function () {
-		$('#cdnDeliveryServicesTable').dataTable({
-			"aLengthMenu": [[25, 50, 100, -1], [25, 50, 100, "All"]],
-			"iDisplayLength": 25,
-			"columnDefs": [
-				{ 'orderable': false, 'targets': 12 }
-			],
-			"aaSorting": []
-		});
-	});
-
 };
 
-TableCDNDeliveryServicesController.$inject = ['cdn', 'deliveryServices', '$controller', '$scope'];
+TableCDNDeliveryServicesController.$inject = ['cdn', 'deliveryServices', 'filter', '$controller', '$scope'];
 module.exports = TableCDNDeliveryServicesController;

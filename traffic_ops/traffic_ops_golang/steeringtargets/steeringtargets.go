@@ -24,6 +24,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
+
+	"github.com/apache/trafficcontrol/lib/go-log"
+	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/util/ims"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/lib/go-util"
@@ -44,8 +48,8 @@ type TOSteeringTargetV11 struct {
 
 func (st TOSteeringTargetV11) GetKeyFieldsInfo() []api.KeyFieldInfo {
 	return []api.KeyFieldInfo{
-		{"deliveryservice", api.GetIntKey},
-		{"target", api.GetIntKey},
+		{Field: "deliveryservice", Func: api.GetIntKey},
+		{Field: "target", Func: api.GetIntKey},
 	}
 }
 
@@ -94,37 +98,51 @@ func (st TOSteeringTargetV11) Validate() error {
 	return st.SteeringTargetNullable.Validate(st.ReqInfo.Tx.Tx)
 }
 
-func (st *TOSteeringTargetV11) Read() ([]interface{}, error, error, int) {
-	steeringTargets, userErr, sysErr, errCode := read(st.ReqInfo.Tx, st.ReqInfo.Params, st.ReqInfo.User)
+func (st *TOSteeringTargetV11) Read(h http.Header, useIMS bool) ([]interface{}, error, error, int, *time.Time) {
+	steeringTargets, userErr, sysErr, errCode, maxTime := read(h, st.ReqInfo.Tx, st.ReqInfo.Params, st.ReqInfo.User, useIMS)
 	if userErr != nil || sysErr != nil {
-		return nil, userErr, sysErr, errCode
+		return nil, userErr, sysErr, errCode, nil
 	}
 	iSteeringTargets := make([]interface{}, len(steeringTargets), len(steeringTargets))
 	for i, steeringTarget := range steeringTargets {
 		iSteeringTargets[i] = steeringTarget
 	}
-	return iSteeringTargets, nil, nil, http.StatusOK
+	return iSteeringTargets, nil, nil, errCode, maxTime
 }
 
-func read(tx *sqlx.Tx, parameters map[string]string, user *auth.CurrentUser) ([]tc.SteeringTargetNullable, error, error, int) {
+func read(h http.Header, tx *sqlx.Tx, parameters map[string]string, user *auth.CurrentUser, useIMS bool) ([]tc.SteeringTargetNullable, error, error, int, *time.Time) {
+	var maxTime time.Time
+	var runSecond bool
 	queryParamsToQueryCols := map[string]dbhelpers.WhereColumnInfo{
-		"deliveryservice": dbhelpers.WhereColumnInfo{"st.deliveryservice", api.IsInt},
-		"target":          dbhelpers.WhereColumnInfo{"st.target", api.IsInt},
+		"deliveryservice": dbhelpers.WhereColumnInfo{Column: "st.deliveryservice", Checker: api.IsInt},
+		"target":          dbhelpers.WhereColumnInfo{Column: "st.target", Checker: api.IsInt},
 	}
-	where, orderBy, queryValues, errs := dbhelpers.BuildWhereAndOrderBy(parameters, queryParamsToQueryCols)
+	where, orderBy, pagination, queryValues, errs := dbhelpers.BuildWhereAndOrderByAndPagination(parameters, queryParamsToQueryCols)
 	if len(errs) > 0 {
-		return nil, nil, util.JoinErrs(errs), http.StatusBadRequest
+		return nil, nil, util.JoinErrs(errs), http.StatusBadRequest, nil
 	}
-	query := selectQuery() + where + orderBy
+
+	if useIMS {
+		runSecond, maxTime = ims.TryIfModifiedSinceQuery(tx, h, queryValues, selectMaxLastUpdatedQuery(where))
+		if !runSecond {
+			log.Debugln("IMS HIT")
+			return []tc.SteeringTargetNullable{}, nil, nil, http.StatusNotModified, &maxTime
+		}
+		log.Debugln("IMS MISS")
+	} else {
+		log.Debugln("Non IMS request")
+	}
+
+	query := selectQuery() + where + orderBy + pagination
 
 	userTenants, err := tenant.GetUserTenantListTx(*user, tx.Tx)
 	if err != nil {
-		return nil, nil, errors.New("getting user tenant list: " + err.Error()), http.StatusInternalServerError
+		return nil, nil, errors.New("getting user tenant list: " + err.Error()), http.StatusInternalServerError, nil
 	}
 
 	rows, err := tx.NamedQuery(query, queryValues)
 	if err != nil {
-		return nil, nil, errors.New("steering targets querying: " + err.Error()), http.StatusInternalServerError
+		return nil, nil, errors.New("steering targets querying: " + err.Error()), http.StatusInternalServerError, nil
 	}
 	defer rows.Close()
 
@@ -132,7 +150,7 @@ func read(tx *sqlx.Tx, parameters map[string]string, user *auth.CurrentUser) ([]
 	for rows.Next() {
 		s := TOSteeringTargetV11{}
 		if err = rows.StructScan(&s); err != nil {
-			return nil, nil, errors.New("steering targets parsing: " + err.Error()), http.StatusInternalServerError
+			return nil, nil, errors.New("steering targets parsing: " + err.Error()), http.StatusInternalServerError, nil
 		}
 		steeringTargets = append(steeringTargets, s)
 	}
@@ -140,7 +158,7 @@ func read(tx *sqlx.Tx, parameters map[string]string, user *auth.CurrentUser) ([]
 	tenantMap := map[int]struct{}{}
 	for _, ten := range userTenants {
 		if ten.ID == nil {
-			return nil, nil, errors.New("user tenant with nil ID"), http.StatusInternalServerError
+			return nil, nil, errors.New("user tenant with nil ID"), http.StatusInternalServerError, nil
 		}
 		tenantMap[*ten.ID] = struct{}{}
 	}
@@ -156,7 +174,17 @@ func read(tx *sqlx.Tx, parameters map[string]string, user *auth.CurrentUser) ([]
 			continue
 		}
 	}
-	return filteredTargets, nil, nil, http.StatusOK
+	return filteredTargets, nil, nil, http.StatusOK, &maxTime
+}
+
+func selectMaxLastUpdatedQuery(where string) string {
+	return `SELECT max(t) from (
+		SELECT max(st.last_updated) as t FROM steering_target AS st
+	JOIN deliveryservice AS ds ON st.deliveryservice = ds.id
+	JOIN deliveryservice AS dst ON st.target = dst.id
+	JOIN type AS tp ON tp.id = st.type ` + where +
+		` UNION ALL
+	select max(last_updated) as t from last_deleted l where l.table_name='steering_target') as res`
 }
 
 func (st *TOSteeringTargetV11) Create() (error, error, int) {
@@ -197,7 +225,7 @@ func (st *TOSteeringTargetV11) Create() (error, error, int) {
 	return nil, nil, http.StatusOK
 }
 
-func (st *TOSteeringTargetV11) Update() (error, error, int) {
+func (st *TOSteeringTargetV11) Update(h http.Header) (error, error, int) {
 	dsIDInt, err := strconv.Atoi(st.ReqInfo.Params["deliveryservice"])
 	if err != nil {
 		return errors.New("delivery service ID must be an integer"), nil, http.StatusBadRequest
@@ -215,6 +243,17 @@ func (st *TOSteeringTargetV11) Update() (error, error, int) {
 
 	if userErr, sysErr, errCode := tenant.CheckID(st.ReqInfo.Tx.Tx, st.ReqInfo.User, int(*st.DeliveryServiceID)); userErr != nil || sysErr != nil {
 		return userErr, sysErr, errCode
+	}
+	err, found, existingLastUpdated := CheckIfExistsBeforeUpdate(st.ReqInfo.Tx, st)
+	if err == nil && found == false {
+		return errors.New("no steering target found with this id"), nil, http.StatusNotFound
+	}
+	if err != nil {
+		return nil, err, http.StatusInternalServerError
+	}
+
+	if !api.IsUnmodified(h, *existingLastUpdated) {
+		return errors.New("resource was modified"), nil, http.StatusPreconditionFailed
 	}
 
 	rows, err := st.ReqInfo.Tx.NamedQuery(updateQuery(), st)
@@ -234,11 +273,29 @@ func (st *TOSteeringTargetV11) Update() (error, error, int) {
 	st.LastUpdated = &lastUpdated
 	if rowsAffected != 1 {
 		if rowsAffected < 1 {
-			return nil, nil, http.StatusNotFound
+			return errors.New("steering target not found"), nil, http.StatusNotFound
 		}
 		return nil, errors.New("too many ids returned from steering target update"), http.StatusInternalServerError
 	}
 	return nil, nil, http.StatusOK
+}
+
+func CheckIfExistsBeforeUpdate(tx *sqlx.Tx, st *TOSteeringTargetV11) (error, bool, *time.Time) {
+	found := false
+	lastUpdated := time.Time{}
+	rows, err := tx.NamedQuery(`select last_updated from steering_target where deliveryservice=:deliveryservice and target=:target`, st)
+	if err != nil {
+		return errors.New("querying last_updated: " + err.Error()), found, nil
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, found, nil
+	}
+	found = true
+	if err := rows.Scan(&lastUpdated); err != nil {
+		return errors.New("scanning last_updated: " + err.Error()), found, nil
+	}
+	return nil, found, &lastUpdated
 }
 
 func (st *TOSteeringTargetV11) Delete() (error, error, int) {
@@ -256,7 +313,7 @@ func (st *TOSteeringTargetV11) Delete() (error, error, int) {
 	}
 
 	if rowsAffected < 1 {
-		return nil, nil, http.StatusNotFound
+		return errors.New("steering target not found"), nil, http.StatusNotFound
 	} else if rowsAffected != 1 {
 		return nil, fmt.Errorf("this create affected too many rows: %d", rowsAffected), http.StatusInternalServerError
 	}

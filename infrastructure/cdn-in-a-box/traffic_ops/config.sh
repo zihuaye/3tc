@@ -6,9 +6,9 @@
 # to you under the Apache License, Version 2.0 (the
 # "License"); you may not use this file except in compliance
 # with the License.  You may obtain a copy of the License at
-# 
+#
 #   http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing,
 # software distributed under the License is distributed on an
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -31,27 +31,22 @@
 # ADMIN_PASS
 # TO_HOST
 # TO_PORT
-# TO_PERL_HOST
-# TO_PERL_PORT
 # TP_HOST
 #
 # Check that env vars are set
-envvars=( DB_SERVER DB_PORT DB_ROOT_PASS DB_USER DB_USER_PASS ADMIN_USER ADMIN_PASS DOMAIN TO_PERL_HOST TO_PERL_PORT TO_HOST TO_PORT TP_HOST)
-for v in $envvars
-do
-	if [[ -z $$v ]]; then echo "$v is unset"; exit 1; fi
+envvars=( DB_SERVER DB_PORT DB_ROOT_PASS DB_USER DB_USER_PASS ADMIN_USER ADMIN_PASS DOMAIN TO_HOST TO_PORT TP_HOST)
+for v in $envvars; do
+  if [[ -z "${!v}" ]]; then echo "$v is unset"; exit 1; fi
 done
 
-until [[ -f "$X509_CA_ENV_FILE" ]]
-do
+until [[ -f "$X509_CA_ENV_FILE" ]]; do
   echo "Waiting on SSL certificate generation."
   sleep 2
 done
 
 # these expected to be stored in $X509_CA_ENV_FILE, but a race condition could render the contents
 # blank until it gets sync'd.  Ensure vars defined before writing cdn.conf.
-until [[ -n "$X509_GENERATION_COMPLETE" ]]
-do
+until [[ -v X509_GENERATION_COMPLETE && -n "$X509_GENERATION_COMPLETE" ]]; do
   echo "Waiting on X509 vars to be defined"
   sleep 1
   source "$X509_CA_ENV_FILE"
@@ -67,90 +62,133 @@ key="$X509_INFRA_KEY_FILE"
 echo "crt=$crt"
 echo "key=$key"
 
-cat <<-EOF >/opt/traffic_ops/app/conf/cdn.conf
+if [[ "$TO_DEBUG_ENABLE" == true ]]; then
+  DEBUGGING_TIMEOUT=$(( 60 * 60 * 24 )); # Timing out debugging after 1 day seems fair
+fi;
+
+
+echo "$(<postinstall.json envsubst)" >postinstall.json
+
+cdn_conf=/opt/traffic_ops/app/conf/cdn.conf
+>"$cdn_conf" echo "$(jq -s '.[0] * .[1]' "$cdn_conf" <(cat <<-EOF
 {
     "hypnotoad" : {
         "listen" : [
-            "https://$TO_PERL_FQDN:$TO_PERL_PORT?cert=$crt&key=$key&verify=0x00&ciphers=AES128-GCM-SHA256:HIGH:!RC4:!MD5:!aNULL:!EDH:!ED"
-        ],
-        "user" : "trafops",
-        "group" : "trafops",
-        "heartbeat_timeout" : 20,
-        "pid_file" : "/var/run/traffic_ops.pid",
-        "workers" : 12
+            "https://[::]?cert=$crt&key=$key&verify=0x00&ciphers=AES128-GCM-SHA256:HIGH:!RC4:!MD5:!aNULL:!EDH:!ED"
+        ]
     },
+    "use_ims": true,
     "traffic_ops_golang" : {
-	"insecure": true,
-        "port" : "$TO_PORT",
-        "proxy_timeout" : 60,
-        "proxy_keep_alive" : 60,
-        "proxy_tls_timeout" : 60,
-        "proxy_read_header_timeout" : 60,
-        "read_timeout" : 60,
-        "read_header_timeout" : 60,
-        "write_timeout" : 60,
-        "idle_timeout" : 60,
-        "log_location_error": "stdout",
-        "log_location_warning": "stdout",
-        "log_location_info": "stdout",
-        "log_location_debug": "stdout",
-        "log_location_event": "stdout",
-        "max_db_connections": 20,
-        "backend_max_connections": {
-            "mojolicious": 4
-        }
-    },
-    "cors" : {
-        "access_control_allow_origin" : "*"
+        "proxy_timeout" : ${DEBUGGING_TIMEOUT:-60},
+        "proxy_tls_timeout" : ${DEBUGGING_TIMEOUT:-60},
+        "proxy_read_header_timeout" : ${DEBUGGING_TIMEOUT:-60},
+        "read_timeout" : ${DEBUGGING_TIMEOUT:-60},
+        "read_header_timeout" : ${DEBUGGING_TIMEOUT:-60},
+        "request_timeout" : ${DEBUGGING_TIMEOUT:-60},
+        "write_timeout" : ${DEBUGGING_TIMEOUT:-60},
+        "idle_timeout" : ${DEBUGGING_TIMEOUT:-60},
+        "log_location_error": "$TO_LOG_ERROR",
+        "log_location_warning": "$TO_LOG_WARNING",
+        "log_location_info": "$TO_LOG_INFO",
+        "log_location_debug": "$TO_LOG_DEBUG",
+        "log_location_event": "$TO_LOG_EVENT",
+        "db_conn_max_lifetime_seconds": ${DEBUGGING_TIMEOUT:-60},
+        "db_query_timeout_seconds": ${DEBUGGING_TIMEOUT:-20}
     },
     "to" : {
-        "base_url" : "https://$TO_FQDN",
-        "email_from" : "no-reply@$DOMAIN",
-        "no_account_found_msg" : "A Traffic Ops user account is required for access. Please contact your Traffic Ops user administrator."
+        "email_from" : "no-reply@$INFRA_SUBDOMAIN.$TLD_DOMAIN"
     },
     "portal" : {
-        "base_url" : "https://$TP_FQDN/!#/",
-        "email_from" : "no-reply@$DOMAIN",
-        "pass_reset_path" : "user",
-        "user_register_path" : "user"
+        "base_url" : "https://$TP_HOST.$INFRA_SUBDOMAIN.$TLD_DOMAIN/#!/",
+        "email_from" : "no-reply@$INFRA_SUBDOMAIN.$TLD_DOMAIN"
     },
-    "secrets" : [
-        "$TO_SECRET"
-    ],
-    "geniso" : {
-        "iso_root_path" : "/opt/traffic_ops/app/public"
+    "smtp" : {
+        "enabled" : true,
+        "address" : "${SMTP_FQDN}:${SMTP_PORT}"
     },
-    "inactivity_timeout" : 60
+    "InfluxEnabled": true,
+    "influxdb_conf_path": "/opt/traffic_ops/app/conf/production/influx.conf",
+    "lets_encrypt" : {
+        "environment": "staging"
+    }
 }
 EOF
+))"
 
-cat <<-EOF >/opt/traffic_ops/app/conf/production/database.conf
+<<RIAK_CONF cat >/opt/traffic_ops/app/conf/production/riak.conf
 {
-        "description": "Local PostgreSQL database on port 5432",
-        "dbname": "$DB_NAME",
-        "hostname": "$DB_FQDN",
-        "user": "$DB_USER",
-        "password": "$DB_USER_PASS",
-        "port": "$DB_PORT",
-        "ssl": false,
-        "type": "Pg"
+  "MaxTLSVersion": "1.1",
+  "password": "$TV_RIAK_PASSWORD",
+  "user": "$TV_RIAK_USER"
 }
-EOF
+RIAK_CONF
 
-cat <<-EOF >/opt/traffic_ops/app/db/dbconf.yml
-version: "1.0"
-name: dbconf.yml
-
-production:
-  driver: postgres
-  open: host=$DB_FQDN port=$DB_PORT user=$DB_USER password=$DB_USER_PASS dbname=$DB_NAME sslmode=disable
-test:
-  driver: postgres
-  open: host=$DB_FQDN port=$DB_PORT user=$DB_USER password=$DB_USER_PASS dbname=to_test sslmode=disable
-EOF
-
-cat <<-EOF >/opt/traffic_ops/app/conf/production/riak.conf
-{     "user": "$TV_RIAK_USER",
-  "password": "$TV_RIAK_PASSWORD"
+<<INFLUX_CONF cat >/opt/traffic_ops/app/conf/production/influx.conf
+{
+  "password": "$INFLUXDB_ADMIN_PASSWORD",
+  "secure": false,
+  "user": "$INFLUXDB_ADMIN_USER"
 }
-EOF
+INFLUX_CONF
+
+install_bin=/opt/traffic_ops/install/bin
+input_json="${install_bin}/input.json"
+echo "$(jq "$(<<'JQ_FILTER' envsubst
+  ."/opt/traffic_ops/app/conf/cdn.conf"[] |= (
+    (select(.config_var == "base_url") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${TO_URL}"
+    else . end))
+  ) |
+  ."/opt/traffic_ops/app/conf/production/database.conf"[] |= (
+    (select(.config_var == "dbname") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${DB_NAME}"
+    else . end)) |
+    (select(.config_var == "hostname") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${DB_FQDN}"
+    else . end)) |
+    (select(.config_var == "user") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${DB_USER}"
+    else . end)) |
+    (select(.config_var == "password") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${DB_USER_PASS}"
+    else . end))
+  ) |
+  ."/opt/traffic_ops/app/db/dbconf.yml"[] |= (
+    (select(.config_var == "pgUser") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${DB_USER}"
+    else . end)) |
+    (select(.config_var == "pgPassword") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${DB_USER_PASS}"
+    else . end))
+  ) |
+  ."/opt/traffic_ops/install/data/json/openssl_configuration.json"[] |= (
+    (select(.config_var == "genCert") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "no"
+    else . end)) |
+    (select(.config_var == "pgPassword") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${DB_USER_PASS}"
+    else . end))
+  ) |
+  ."/opt/traffic_ops/install/data/json/profiles.json"[] |= (
+    (select(.config_var == "tm.url") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${TO_URL}"
+    else . end)) |
+    (select(.config_var == "cdn_name") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${CDN_NAME}"
+    else . end)) |
+    (select(.config_var == "dns_subdomain") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${CDN_SUBDOMAIN}.${TLD_DOMAIN}"
+    else . end))
+  ) |
+  ."/opt/traffic_ops/install/data/json/users.json"[] |= (
+    (select(.config_var == "tmAdminUser") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${TO_ADMIN_USER}"
+    else . end)) |
+    (select(.config_var == "tmAdminPw") |= with_entries(if .key | test("^[A-Z]") then .value =
+      "${TO_ADMIN_PASSWORD}"
+    else . end))
+  )
+JQ_FILTER
+)" "$input_json")" >"$input_json"
+
+"${install_bin}/postinstall" -a --cfile "$input_json" -n --no-restart-to

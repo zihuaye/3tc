@@ -17,10 +17,10 @@
  * under the License.
  */
 
-var TableServerDeliveryServicesController = function(server, deliveryServices, $controller, $scope, $state, $uibModal, dateUtils, deliveryServiceUtils, locationUtils, serverUtils, deliveryServiceService, serverService) {
+var TableServerDeliveryServicesController = function(server, deliveryServices, filter, $controller, $scope, $state, $uibModal, dateUtils, deliveryServiceUtils, locationUtils, serverUtils, deliveryServiceService, serverService) {
 
 	// extends the TableDeliveryServicesController to inherit common methods
-	angular.extend(this, $controller('TableDeliveryServicesController', { deliveryServices: deliveryServices, $scope: $scope }));
+	angular.extend(this, $controller('TableDeliveryServicesController', { tableName: 'serverDS', deliveryServices: deliveryServices, filter: filter, $scope: $scope }));
 
 	var removeDeliveryService = function(dsId) {
 		deliveryServiceService.deleteDeliveryServiceServer(dsId, $scope.server.id)
@@ -31,27 +31,42 @@ var TableServerDeliveryServicesController = function(server, deliveryServices, $
 			);
 	};
 
-	$scope.server = server;
-
-	// adds some items to the base delivery services context menu
-	$scope.contextMenuItems.splice(2, 0,
-		{
-			text: 'Unlink Delivery Service from Server',
-			hasBottomDivider: function() {
-				return true;
-			},
-			click: function ($itemScope) {
-				$scope.confirmRemoveDS($itemScope.ds);
-			}
-		}
-	);
+	$scope.server = server[0];
 
 	$scope.isEdge = serverUtils.isEdge;
+
+	$scope.isOrigin = serverUtils.isOrigin;
+
+	$scope.confirmRemoveDS = function(ds, event) {
+		event.stopPropagation();
+		var params = {
+			title: 'Remove Delivery Service from Server?',
+			message: 'Are you sure you want to remove ' + ds.xmlId + ' from this server?'
+		};
+		var modalInstance = $uibModal.open({
+			templateUrl: 'common/modules/dialog/confirm/dialog.confirm.tpl.html',
+			controller: 'DialogConfirmController',
+			size: 'md',
+			resolve: {
+				params: function () {
+					return params;
+				}
+			}
+		});
+		modalInstance.result.then(function() {
+			removeDeliveryService(ds.id);
+		}, function () {
+			// do nothing
+		});
+	};
 
 	$scope.cloneDsAssignments = function() {
 		var params = {
 			title: 'Clone Delivery Service Assignments',
-			message: "Please select an edge cache to assign these " + deliveryServices.length + " delivery services to.<br><br>Warning - Any delivery services currently assigned to the selected edge cache will be lost and replaced with these delivery service assignments...",
+			message: "Please select another " + $scope.server.type + " cache to assign these " + deliveryServices.length + " delivery services to." +
+				"<br>" +
+				"<br>" +
+				"<strong>WARNING THIS CANNOT BE UNDONE</strong> - Any delivery services currently assigned to the selected cache will be lost and replaced with these " + deliveryServices.length + " delivery service assignments.",
 			labelFunction: function(item) { return item['hostName'] + '.' + item['domainName'] }
 		};
 		var modalInstance = $uibModal.open({
@@ -63,7 +78,7 @@ var TableServerDeliveryServicesController = function(server, deliveryServices, $
 					return params;
 				},
 				collection: function(serverService) {
-					return serverService.getServers({ type: 'EDGE', orderby: 'hostName' });
+					return serverService.getServers({ type: $scope.server.type, orderby: 'hostName', cdn: $scope.server.cdnId }).then(function(xs){return xs.filter(function(x){return x.id!=$scope.server.id})}, function(err){throw err});
 				}
 			}
 		});
@@ -87,10 +102,10 @@ var TableServerDeliveryServicesController = function(server, deliveryServices, $
 			size: 'lg',
 			resolve: {
 				server: function() {
-					return server;
+					return $scope.server;
 				},
 				deliveryServices: function(deliveryServiceService) {
-					return deliveryServiceService.getDeliveryServices({ cdn: server.cdnId });
+					return deliveryServiceService.getDeliveryServices({ cdn: $scope.server.cdnId });
 				},
 				assignedDeliveryServices: function() {
 					return deliveryServices;
@@ -98,7 +113,7 @@ var TableServerDeliveryServicesController = function(server, deliveryServices, $
 			}
 		});
 		modalInstance.result.then(function(selectedDsIds) {
-			serverService.assignDeliveryServices(server, selectedDsIds, true, false)
+			serverService.assignDeliveryServices($scope.server, selectedDsIds, true, false)
 				.then(
 					function() {
 						$scope.refresh();
@@ -109,44 +124,7 @@ var TableServerDeliveryServicesController = function(server, deliveryServices, $
 		});
 	};
 
-	$scope.confirmRemoveDS = function(ds, $event) {
-		if ($event) {
-			$event.stopPropagation(); // this kills the click event so it doesn't trigger anything else
-		}
-
-		var params = {
-			title: 'Remove Delivery Service from Server?',
-			message: 'Are you sure you want to remove ' + ds.xmlId + ' from this server?'
-		};
-		var modalInstance = $uibModal.open({
-			templateUrl: 'common/modules/dialog/confirm/dialog.confirm.tpl.html',
-			controller: 'DialogConfirmController',
-			size: 'md',
-			resolve: {
-				params: function () {
-					return params;
-				}
-			}
-		});
-		modalInstance.result.then(function() {
-			removeDeliveryService(ds.id);
-		}, function () {
-			// do nothing
-		});
-	};
-
-	angular.element(document).ready(function () {
-		$('#serverDeliveryServicesTable').dataTable({
-			"aLengthMenu": [[25, 50, 100, -1], [25, 50, 100, "All"]],
-			"iDisplayLength": 25,
-			"columnDefs": [
-				{ 'orderable': false, 'targets': 12 }
-			],
-			"aaSorting": []
-		});
-	});
-
 };
 
-TableServerDeliveryServicesController.$inject = ['server', 'deliveryServices', '$controller', '$scope', '$state', '$uibModal', 'dateUtils', 'deliveryServiceUtils', 'locationUtils', 'serverUtils', 'deliveryServiceService', 'serverService'];
+TableServerDeliveryServicesController.$inject = ['server', 'deliveryServices', 'filter', '$controller', '$scope', '$state', '$uibModal', 'dateUtils', 'deliveryServiceUtils', 'locationUtils', 'serverUtils', 'deliveryServiceService', 'serverService'];
 module.exports = TableServerDeliveryServicesController;

@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -34,12 +34,10 @@ module.exports = {
         base_url: 'https://trafficops.CHANGEME.domain.com/api/'
     },
     // default static files location (this is where the traffic portal html, css and javascript was installed. rpm installs these files at /opt/traffic_portal/public
-    // change this to ./app/dist/public/ if you are running locally for development
     files: {
         static: '/opt/traffic_portal/public'
     },
     // default log location (this is where traffic_portal logs are written)
-    // change this to ./server/log/access.log if you are running traffic portal locally for development
     log: {
         stream: '/var/log/traffic_portal/access.log'
     },

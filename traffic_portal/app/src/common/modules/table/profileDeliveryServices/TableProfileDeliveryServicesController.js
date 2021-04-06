@@ -17,25 +17,13 @@
  * under the License.
  */
 
-var TableProfileDeliveryServicesController = function(profile, deliveryServices, $controller, $scope) {
+var TableProfileDeliveryServicesController = function(profile, deliveryServices, filter, $controller, $scope) {
 
 	// extends the TableDeliveryServicesController to inherit common methods
-	angular.extend(this, $controller('TableDeliveryServicesController', { deliveryServices: deliveryServices, $scope: $scope }));
+	angular.extend(this, $controller('TableDeliveryServicesController', { tableName: 'profileDS', deliveryServices: deliveryServices, filter: filter, $scope: $scope }));
 
 	$scope.profile = profile;
-
-	angular.element(document).ready(function () {
-		$('#profileDeliveryServicesTable').dataTable({
-			"aLengthMenu": [[25, 50, 100, -1], [25, 50, 100, "All"]],
-			"iDisplayLength": 25,
-			"columnDefs": [
-				{ 'orderable': false, 'targets': 12 }
-			],
-			"aaSorting": []
-		});
-	});
-
 };
 
-TableProfileDeliveryServicesController.$inject = ['profile', 'deliveryServices', '$controller', '$scope'];
+TableProfileDeliveryServicesController.$inject = ['profile', 'deliveryServices', 'filter', '$controller', '$scope'];
 module.exports = TableProfileDeliveryServicesController;

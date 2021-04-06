@@ -17,25 +17,13 @@
  * under the License.
  */
 
-var TableTypeDeliveryServicesController = function(type, deliveryServices, $controller, $scope) {
+var TableTypeDeliveryServicesController = function(type, deliveryServices, filter, $controller, $scope) {
 
 	// extends the TableDeliveryServicesController to inherit common methods
-	angular.extend(this, $controller('TableDeliveryServicesController', { deliveryServices: deliveryServices, $scope: $scope }));
+	angular.extend(this, $controller('TableDeliveryServicesController', { tableName: 'typeDS', deliveryServices: deliveryServices, filter: filter, $scope: $scope }));
 
 	$scope.type = type;
-
-	angular.element(document).ready(function () {
-		$('#typeDeliveryServicesTable').dataTable({
-			"aLengthMenu": [[25, 50, 100, -1], [25, 50, 100, "All"]],
-			"iDisplayLength": 25,
-			"columnDefs": [
-				{ 'orderable': false, 'targets': 12 }
-			],
-			"aaSorting": []
-		});
-	});
-
 };
 
-TableTypeDeliveryServicesController.$inject = ['type', 'deliveryServices', '$controller', '$scope'];
+TableTypeDeliveryServicesController.$inject = ['type', 'deliveryServices', 'filter', '$controller', '$scope'];
 module.exports = TableTypeDeliveryServicesController;

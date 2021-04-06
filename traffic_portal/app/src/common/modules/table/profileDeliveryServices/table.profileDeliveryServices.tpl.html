@@ -20,55 +20,101 @@ under the License.
 <div class="x_panel">
     <div class="x_title">
         <ol class="breadcrumb pull-left">
-            <li><a ng-click="navigateToPath('/profiles')">Profiles</a></li>
-            <li><a ng-click="navigateToPath('/profiles/' + profile.id)">{{::profile.name}}</a></li>
+            <li><a href="#!/profiles">Profiles</a></li>
+            <li><a ng-href="#!/profiles/{{profile.id}}">{{::profile.name}}</a></li>
             <li class="active">Delivery Services</li>
         </ol>
         <div class="pull-right">
-            <button class="btn btn-default" title="Refresh" ng-click="refresh()"><i class="fa fa-refresh"></i></button>
+            <div class="form-inline" role="search">
+                <input id="quickSearch" name="quickSearch" type="search" class="form-control text-input" placeholder="Quick search..." ng-model="quickSearch" ng-change="onQuickSearchChanged()" aria-label="Search"/>
+                <div class="input-group text-input">
+                    <span class="input-group-addon">
+                        <label for="pageSize">Page size</label>
+                    </span>
+                    <input id="pageSize" name="pageSize" type="number" min="1" class="form-control" placeholder="100" ng-model="pageSize" ng-change="onPageSizeChanged()" aria-label="Page Size"/>
+                </div>
+                <div id="toggleColumns" class="btn-group" role="group" title="Select Table Columns" uib-dropdown is-open="columnSettings.isopen">
+                    <button type="button" class="btn btn-default dropdown-toggle" uib-dropdown-toggle aria-haspopup="true" aria-expanded="false">
+                        <i class="fa fa-columns"></i>&nbsp;
+                        <span class="caret"></span>
+                    </button>
+                    <menu ng-click="$event.stopPropagation()" class="column-settings dropdown-menu-right dropdown-menu" uib-dropdown-menu>
+                        <li role="menuitem" ng-repeat="c in gridOptions.columnApi.getAllColumns() | orderBy:'colDef.headerName'">
+                            <div class="checkbox">
+                                <label><input type="checkbox" ng-checked="c.isVisible()" ng-click="toggleVisibility(c.colId)">{{::c.colDef.headerName}}</label>
+                            </div>
+                        </li>
+                    </menu>
+                </div>
+                <div class="btn-group" role="group" uib-dropdown is-open="more.isopen">
+                    <button name="moreBtn" type="button" class="btn btn-default dropdown-toggle" uib-dropdown-toggle aria-haspopup="true" aria-expanded="false">
+                        More&nbsp;
+                        <span class="caret"></span>
+                    </button>
+                    <ul class="dropdown-menu-right dropdown-menu" uib-dropdown-menu>
+                        <li role="menuitem"><button class="menu-item-button" type="button" ng-click="clearTableFilters()">Clear Table Filters</button></li>
+                        <li role="menuitem"><button class="menu-item-button" type="button" ng-click="exportCSV()">Export CSV</button></li>
+                    </ul>
+                </div>
+            </div>
         </div>
         <div class="clearfix"></div>
     </div>
     <div class="x_content">
-        <br>
-        <table id="profileDeliveryServicesTable" class="table responsive-utilities jambo_table">
-            <thead>
-            <tr class="headings">
-                <th>Key (XML ID)</th>
-                <th>Tenant</th>
-                <th>Origin</th>
-                <th>Active</th>
-                <th>Type</th>
-                <th>Protocol</th>
-                <th>CDN</th>
-                <th>IPv6 Enabled</th>
-                <th>DSCP</th>
-                <th>Signing Algorithm</th>
-                <th>Qstring Handling</th>
-                <th>Last Updated</th>
-                <th style="text-align: right;">Actions</th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr ng-click="editDeliveryService(ds)" ng-repeat="ds in ::deliveryServices" context-menu="contextMenuItems">
-                <td data-search="^{{::ds.xmlId}}$">{{::ds.xmlId}}</td>
-                <td data-search="^{{::ds.tenant}}$">{{::ds.tenant}}</td>
-                <td data-search="^{{::ds.orgServerFqdn}}$">{{::ds.orgServerFqdn}}</td>
-                <td data-search="^{{::ds.active}}$">{{::ds.active}}</td>
-                <td data-search="^{{::ds.type}}$">{{::ds.type}}</td>
-                <td data-search="^{{::protocol(ds)}}$">{{::protocol(ds)}}</td>
-                <td data-search="^{{::ds.cdnName}}$">{{::ds.cdnName}}</td>
-                <td data-search="^{{::ds.ipv6RoutingEnabled}}$">{{::ds.ipv6RoutingEnabled}}</td>
-                <td data-search="^{{::ds.dscp}}$">{{::ds.dscp}}</td>
-                <td data-search="^{{::ds.signingAlgorithm}}$">{{::ds.signingAlgorithm}}</td>
-                <td data-search="^{{::qstring(ds)}}$">{{::qstring(ds)}}</td>
-                <td data-search="^{{::getRelativeTime(ds.lastUpdated)}}$" data-order="{{::ds.lastUpdated}}">{{::getRelativeTime(ds.lastUpdated)}}</td>
-                <td style="text-align: right;">
-                    <span ng-if="showChartsButton"><a class="link action-link" title="View Charts" ng-click="openCharts(ds, $event)"><i class="fa fa-sm fa-bar-chart"></i></a></span>
-                </td>
-            </tr>
-            </tbody>
-        </table>
+        <div style="height: 740px;" ag-grid="gridOptions" class="ag-theme-alpine"></div>
     </div>
 </div>
 
+<menu id="context-menu" class="dropdown-menu" ng-style="menuStyle" type="contextmenu" ng-show="showMenu">
+    <ul>
+        <li role="menuitem">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}?type={{deliveryService.type}}" target="_blank">Open {{ deliveryService.xmlId }} in New Tab</a>
+        </li>
+        <hr class="divider"/>
+        <li role="menuitem">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}?type={{deliveryService.type}}">Edit</a>
+        </li>
+        <li role="menuitem">
+            <button type="button" ng-click="clone(deliveryService, $event)">Clone</button>
+        </li>
+        <li role="menuitem">
+            <button type="button" ng-click="confirmDelete(deliveryService, $event)">Delete</button>
+        </li>
+        <hr class="divider"/>
+        <li role="menuitem">
+            <button type="button" ng-click="viewCharts(deliveryService, $event)">View Charts</button>
+        </li>
+        <hr class="divider"/>
+        <li role="menuitem">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}/ssl-keys?type={{deliveryService.type}}">Manage SSL Keys</a>
+        </li>
+        <li role="menuitem">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}/url-sig-keys?type={{deliveryService.type}}">Manage URL Sig Keys</a>
+        </li>
+        <li role="menuitem">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}/uri-signing-keys?type={{deliveryService.type}}">Manage URI Signing Keys</a>
+        </li>
+        <hr class="divider"/>
+        <li role="menuitem">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}/jobs?type={{deliveryService.type}}">Manage Invalidation Requests</a>
+        </li>
+        <li role="menuitem" ng-if="deliveryService.type.indexOf('STEERING') == -1">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}/origins?type={{deliveryService.type}}">Manage Origins</a>
+        </li>
+        <li role="menuitem">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}/regexes?type={{deliveryService.type}}">Manage Regexes</a>
+        </li>
+        <li role="menuitem" ng-if="deliveryService.type.indexOf('DNS') != -1 || deliveryService.type.indexOf('HTTP') != -1">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}/required-server-capabilities?type={{deliveryService.type}}">Manage Required Server Capabilities</a>
+        </li>
+        <li role="menuitem">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}/servers?type={{deliveryService.type}}">Manage Servers</a>
+        </li>
+        <li role="menuitem" ng-if="deliveryService.type.indexOf('STEERING') != -1">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}/targets?type={{deliveryService.type}}">Manage Targets</a>
+        </li>
+        <li role="menuitem">
+            <a ng-href="#!/delivery-services/{{deliveryService.id}}/static-dns-entries?type={{deliveryService.type}}">Manage Static DNS Entries</a>
+        </li>
+    </ul>
+</menu>

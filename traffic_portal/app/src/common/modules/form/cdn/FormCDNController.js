@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -17,7 +17,7 @@
  * under the License.
  */
 
-var FormCDNController = function(cdn, $scope, $location, $uibModal, formUtils, stringUtils, locationUtils, cdnService) {
+var FormCDNController = function(cdn, $scope, $location, $uibModal, formUtils, stringUtils, locationUtils, cdnService, messageModel) {
 
     var queueServerUpdates = function(cdn) {
         cdnService.queueServerUpdates(cdn.id);
@@ -56,6 +56,10 @@ var FormCDNController = function(cdn, $scope, $location, $uibModal, formUtils, s
 
     $scope.viewDeliveryServices = function() {
         $location.path($location.path() + '/delivery-services');
+    };
+
+    $scope.viewNotifications = function() {
+        $location.path($location.path() + '/notifications');
     };
 
     $scope.queueServerUpdates = function(cdn) {
@@ -102,7 +106,6 @@ var FormCDNController = function(cdn, $scope, $location, $uibModal, formUtils, s
         });
     };
 
-
     $scope.navigateToPath = locationUtils.navigateToPath;
 
     $scope.hasError = formUtils.hasError;
@@ -111,5 +114,5 @@ var FormCDNController = function(cdn, $scope, $location, $uibModal, formUtils, s
 
 };
 
-FormCDNController.$inject = ['cdn', '$scope', '$location', '$uibModal', 'formUtils', 'stringUtils', 'locationUtils', 'cdnService'];
+FormCDNController.$inject = ['cdn', '$scope', '$location', '$uibModal', 'formUtils', 'stringUtils', 'locationUtils', 'cdnService', 'messageModel'];
 module.exports = FormCDNController;

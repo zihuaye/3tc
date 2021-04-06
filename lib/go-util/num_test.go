@@ -17,9 +17,82 @@ package util
 // When adding symbols, document the RFC and section they correspond to.
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
+
+func TestJSONNameOrIDStr(t *testing.T) {
+	type testCase struct {
+		input     string
+		expected  JSONNameOrIDStr
+		expectErr bool
+	}
+
+	testCases := []testCase{
+		{
+			`"foo"`,
+			JSONNameOrIDStr{Name: StrPtr("foo")},
+			false,
+		},
+		{
+			`"1"`,
+			JSONNameOrIDStr{ID: IntPtr(1)},
+			false,
+		},
+		{
+			`1`,
+			JSONNameOrIDStr{ID: IntPtr(1)},
+			false,
+		},
+		{
+			`"-1"`,
+			JSONNameOrIDStr{ID: IntPtr(-1)},
+			false,
+		},
+		{
+			`-1`,
+			JSONNameOrIDStr{ID: IntPtr(-1)},
+			false,
+		},
+		{
+			`1.234`,
+			JSONNameOrIDStr{},
+			true,
+		},
+		{
+			`false`,
+			JSONNameOrIDStr{},
+			true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		actual := JSONNameOrIDStr{}
+		err := json.Unmarshal([]byte(testCase.input), &actual)
+		if testCase.expectErr && err == nil {
+			t.Errorf("expected: err, actual: %+v", actual)
+			continue
+		} else if !testCase.expectErr && err != nil {
+			t.Errorf("expected: nil error, actual: %v", err)
+			continue
+		}
+		if !reflect.DeepEqual(testCase.expected, actual) {
+			t.Errorf("expected: %+v, actual: %+v", testCase.expected, actual)
+		}
+	}
+}
+
+func TestToNumeric(t *testing.T) {
+	var number interface{} = "34.59354233"
+	val, success := ToNumeric(number)
+	if !success {
+		t.Errorf("expected ToNumeric to succeed for string %v", number)
+	}
+	if val != 34.59354233 {
+		t.Errorf("expected ToNumeric to return %v, got %v", number, val)
+	}
+}
 
 func TestBytesLenSplit(t *testing.T) {
 	{

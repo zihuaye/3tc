@@ -20,7 +20,9 @@ package physlocation
  */
 
 import (
+	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/lib/go-tc/tovalidate"
@@ -37,22 +39,26 @@ type TOPhysLocation struct {
 	tc.PhysLocationNullable
 }
 
+func (v *TOPhysLocation) GetLastUpdated() (*time.Time, bool, error) {
+	return api.GetLastUpdated(v.APIInfo().Tx, *v.ID, "phys_location")
+}
+
 func (v *TOPhysLocation) SetLastUpdated(t tc.TimeNoMod) { v.LastUpdated = &t }
 func (v *TOPhysLocation) InsertQuery() string           { return insertQuery() }
 func (v *TOPhysLocation) NewReadObj() interface{}       { return &tc.PhysLocationNullable{} }
 func (v *TOPhysLocation) SelectQuery() string           { return selectQuery() }
 func (v *TOPhysLocation) ParamColumns() map[string]dbhelpers.WhereColumnInfo {
 	return map[string]dbhelpers.WhereColumnInfo{
-		"name":   dbhelpers.WhereColumnInfo{"pl.name", nil},
-		"id":     dbhelpers.WhereColumnInfo{"pl.id", api.IsInt},
-		"region": dbhelpers.WhereColumnInfo{"pl.region", api.IsInt},
+		"name":   dbhelpers.WhereColumnInfo{Column: "pl.name"},
+		"id":     dbhelpers.WhereColumnInfo{Column: "pl.id", Checker: api.IsInt},
+		"region": dbhelpers.WhereColumnInfo{Column: "pl.region", Checker: api.IsInt},
 	}
 }
 func (v *TOPhysLocation) UpdateQuery() string { return updateQuery() }
 func (v *TOPhysLocation) DeleteQuery() string { return deleteQuery() }
 
 func (pl TOPhysLocation) GetKeyFieldsInfo() []api.KeyFieldInfo {
-	return []api.KeyFieldInfo{{"id", api.GetIntKey}}
+	return []api.KeyFieldInfo{{Field: "id", Func: api.GetIntKey}}
 }
 
 //Implementation of the Identifier, Validator interface functions
@@ -98,8 +104,19 @@ func (pl *TOPhysLocation) Validate() error {
 	return nil
 }
 
-func (pl *TOPhysLocation) Read() ([]interface{}, error, error, int) { return api.GenericRead(pl) }
-func (pl *TOPhysLocation) Update() (error, error, int)              { return api.GenericUpdate(pl) }
+func (pl *TOPhysLocation) Read(h http.Header, useIMS bool) ([]interface{}, error, error, int, *time.Time) {
+	api.DefaultSort(pl.APIInfo(), "name")
+	return api.GenericRead(h, pl, useIMS)
+}
+func (v *TOPhysLocation) SelectMaxLastUpdatedQuery(where, orderBy, pagination, tableName string) string {
+	return `SELECT max(t) from (
+		SELECT max(pl.last_updated) as t FROM phys_location pl
+JOIN region r ON pl.region = r.id ` + where + orderBy + pagination +
+		` UNION ALL
+	select max(last_updated) as t from last_deleted l where l.table_name='phys_location') as res`
+}
+
+func (pl *TOPhysLocation) Update(h http.Header) (error, error, int) { return api.GenericUpdate(h, pl) }
 func (pl *TOPhysLocation) Create() (error, error, int)              { return api.GenericCreate(pl) }
 func (pl *TOPhysLocation) Delete() (error, error, int)              { return api.GenericDelete(pl) }
 

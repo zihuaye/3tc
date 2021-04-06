@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/lib/go-tc/tovalidate"
@@ -41,22 +42,33 @@ type TOStatus struct {
 	SQLDescription sql.NullString `json:"-" db:"description"`
 }
 
+func (v *TOStatus) GetLastUpdated() (*time.Time, bool, error) {
+	return api.GetLastUpdated(v.APIInfo().Tx, *v.ID, "status")
+}
+
+func (v *TOStatus) SelectMaxLastUpdatedQuery(where, orderBy, pagination, tableName string) string {
+	return `SELECT max(t) from (
+		SELECT max(last_updated) as t from ` + tableName + ` s ` + where + orderBy + pagination +
+		` UNION ALL
+	select max(last_updated) as t from last_deleted l where l.table_name='` + tableName + `') as res`
+}
+
 func (v *TOStatus) SetLastUpdated(t tc.TimeNoMod) { v.LastUpdated = &t }
 func (v *TOStatus) InsertQuery() string           { return insertQuery() }
 func (v *TOStatus) NewReadObj() interface{}       { return &TOStatus{} }
 func (v *TOStatus) SelectQuery() string           { return selectQuery() }
 func (v *TOStatus) ParamColumns() map[string]dbhelpers.WhereColumnInfo {
 	return map[string]dbhelpers.WhereColumnInfo{
-		"id":          dbhelpers.WhereColumnInfo{"id", api.IsInt},
-		"description": dbhelpers.WhereColumnInfo{"description", nil},
-		"name":        dbhelpers.WhereColumnInfo{"name", nil},
+		"id":          dbhelpers.WhereColumnInfo{Column: "id", Checker: api.IsInt},
+		"description": dbhelpers.WhereColumnInfo{Column: "description"},
+		"name":        dbhelpers.WhereColumnInfo{Column: "name"},
 	}
 }
 func (v *TOStatus) UpdateQuery() string { return updateQuery() }
 func (v *TOStatus) DeleteQuery() string { return deleteQuery() }
 
 func (status TOStatus) GetKeyFieldsInfo() []api.KeyFieldInfo {
-	return []api.KeyFieldInfo{{"id", api.GetIntKey}}
+	return []api.KeyFieldInfo{{Field: "id", Func: api.GetIntKey}}
 }
 
 //Implementation of the Identifier, Validator interface functions
@@ -91,28 +103,30 @@ func (status TOStatus) Validate() error {
 	return util.JoinErrs(tovalidate.ToErrors(errs))
 }
 
-func (st *TOStatus) Read() ([]interface{}, error, error, int) {
-	readVals, userErr, sysErr, errCode := api.GenericRead(st)
+func (st *TOStatus) Read(h http.Header, useIMS bool) ([]interface{}, error, error, int, *time.Time) {
+	errCode := http.StatusOK
+	api.DefaultSort(st.APIInfo(), "name")
+	readVals, userErr, sysErr, errCode, maxTime := api.GenericRead(h, st, useIMS)
 	if userErr != nil || sysErr != nil {
-		return nil, userErr, sysErr, errCode
+		return nil, userErr, sysErr, errCode, nil
 	}
 
 	for _, iStatus := range readVals {
 		status, ok := iStatus.(*TOStatus)
 		if !ok {
-			return nil, nil, fmt.Errorf("TOStatus.Read: api.GenericRead returned unexpected type %T\n", iStatus), http.StatusInternalServerError
+			return nil, nil, fmt.Errorf("TOStatus.Read: api.GenericRead returned unexpected type %T\n", iStatus), http.StatusInternalServerError, nil
 		}
 		if status.SQLDescription.Valid {
 			status.Description = &status.SQLDescription.String
 		}
 	}
 
-	return readVals, nil, nil, http.StatusOK
+	return readVals, nil, nil, errCode, maxTime
 }
 
-func (st *TOStatus) Update() (error, error, int) { return api.GenericUpdate(st) }
-func (st *TOStatus) Create() (error, error, int) { return api.GenericCreate(st) }
-func (st *TOStatus) Delete() (error, error, int) { return api.GenericDelete(st) }
+func (st *TOStatus) Update(h http.Header) (error, error, int) { return api.GenericUpdate(h, st) }
+func (st *TOStatus) Create() (error, error, int)              { return api.GenericCreate(st) }
+func (st *TOStatus) Delete() (error, error, int)              { return api.GenericDelete(st) }
 
 func selectQuery() string {
 	return `

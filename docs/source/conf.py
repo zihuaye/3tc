@@ -34,14 +34,18 @@ ortPath = os.path.abspath(ortPath)
 clientPath = os.path.abspath(clientPath)
 sys.path.insert(0, ortPath)
 sys.path.insert(0, clientPath)
+sys.path.insert(0, os.path.join(here, '_ext'))
 
 # -- Custom Lexical Analyzer for DNS -----------------------------------------
-
 from pygments.lexer import RegexLexer, bygroups
 from pygments.token import *
 from sphinx.highlighting import lexers
 
 class DNSLexer(RegexLexer):
+    """
+    DNSLexer is a lexer for the pygments code highlighter that highlights DNS messages
+    as printed out by the 'dig' command.
+    """
     name = 'DNS'
     aliases = ['dns', 'dig']
 
@@ -65,9 +69,6 @@ class DNSLexer(RegexLexer):
     }
 
 lexers['DNS'] = DNSLexer(startinline=True)
-
-
-
 
 # -- Project information -----------------------------------------------------
 
@@ -95,7 +96,7 @@ release = version
 extensions = [
 	'sphinx.ext.autodoc',
 	'sphinx_autodoc_typehints',
-    #'sphinx_js'
+    'atc'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -129,7 +130,7 @@ pygments_style = 'sphinx'
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
-# a list of builtin themes.
+# a list of built-in themes.
 #
 html_theme = 'sphinx_rtd_theme'
 
@@ -140,8 +141,8 @@ html_theme = 'sphinx_rtd_theme'
 # html_theme_options = {}
 
 # Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
+# relative to this directory. They are copied after the built-in static files,
+# so a file named "default.css" will overwrite the built-in "default.css".
 html_static_path = ['_static']
 
 # Custom sidebar templates, must be a dictionary that maps document names

@@ -75,10 +75,10 @@ func TestGetDivisions(t *testing.T) {
 
 	reqInfo := api.APIInfo{Tx: db.MustBegin(), Params: map[string]string{"dsId": "1"}}
 	obj := TODivision{
-		api.APIInfoImpl{&reqInfo},
+		api.APIInfoImpl{ReqInfo: &reqInfo},
 		tc.DivisionNullable{},
 	}
-	vals, userErr, sysErr, _ := obj.Read()
+	vals, userErr, sysErr, _, _ := obj.Read(nil, false)
 	if userErr != nil || sysErr != nil {
 		t.Errorf("Read expected: no errors, actual: %v %v", userErr, sysErr)
 	}

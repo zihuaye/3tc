@@ -22,7 +22,7 @@ Traffic Router - Migrating to 3.0
 
 Release Notes v3.0
 ==================
-* Replaced custom Java :abbr:`SNI (Server Name Indication)` implementation with a native implementation using tomcat-native, :abbr:`APR (Apache Portable Runtime)` and OpenSSL. This should significantly improve the performance of routing HTTPS :term:`Delivery Service`\ s.
+* Replaced custom Java :abbr:`SNI (Server Name Indication)` implementation with a native implementation using tomcat-native, :abbr:`APR (Apache Portable Runtime)` and OpenSSL. This should significantly improve the performance of routing HTTPS :term:`Delivery Services`.
 
 	.. seealso:: `The Server Name Indication Wikipedia page <https://en.wikipedia.org/wiki/Server_Name_Indication>`_, `The Apache Portable Runtime project site <https://apr.apache.org/>`_ and/or `the OpenSSL project site <https://www.openssl.org/>`_
 
@@ -33,7 +33,7 @@ Release Notes v3.0
 
 System Requirements
 ===================
-* Centos 7.2
+* Centos 7.9 or CentOS 8.2
 * OpenSSL >= 1.0.2 installed
 * JDK >= 8.0 installed or available in an accessible :manpage:`yum(8)` repository
 * :abbr:`APR (Apache Portable Runtime)` >= 1.4.8-3 installed or available in an accessible :manpage:`yum(8)` repository

@@ -65,14 +65,25 @@ func StartStateCombiner(events health.ThreadsafeEvents, peerStates peer.CRStates
 	return combinedStates, combineState
 }
 
-func combineCacheState(cacheName tc.CacheName, localCacheState tc.IsAvailable, events health.ThreadsafeEvents, peerOptimistic bool, peerStates peer.CRStatesPeersThreadsafe, localStates tc.CRStates, combinedStates peer.CRStatesThreadsafe, overrideMap map[tc.CacheName]bool, toData todata.TOData) {
+func combineCacheState(
+	cacheName tc.CacheName,
+	localCacheState tc.IsAvailable,
+	events health.ThreadsafeEvents,
+	peerOptimistic bool,
+	peerStates peer.CRStatesPeersThreadsafe,
+	combinedStates peer.CRStatesThreadsafe,
+	overrideMap map[tc.CacheName]bool,
+	toData todata.TOData,
+) {
+
 	overrideCondition := ""
-	available := false
+	available := localCacheState.Ipv4Available || localCacheState.Ipv6Available
+	ipv4Available := localCacheState.Ipv4Available
+	ipv6Available := localCacheState.Ipv6Available
 	override := overrideMap[cacheName]
 
-	if localCacheState.IsAvailable {
-		available = true // we don't care about the peers, we got a "good one", and we're optimistic
-
+	if localCacheState.Ipv4Available && localCacheState.Ipv6Available {
+		// we don't care about the peers, we got a "good one", and we're optimistic
 		if override {
 			overrideCondition = "cleared; healthy locally"
 			overrideMap[cacheName] = false
@@ -85,17 +96,27 @@ func combineCacheState(cacheName tc.CacheName, localCacheState tc.IsAvailable, e
 			}
 		} else {
 			onlineOnPeers := make([]string, 0)
+			ipv4OnlineOnPeers := make([]string, 0)
+			ipv6OnlineOnPeers := make([]string, 0)
 
 			for peer, peerCrStates := range peerStates.GetCrstates() {
 				if peerStates.GetPeerAvailability(peer) {
 					if peerCrStates.Caches[cacheName].IsAvailable {
 						onlineOnPeers = append(onlineOnPeers, peer.String())
 					}
+					if peerCrStates.Caches[cacheName].Ipv4Available {
+						ipv4OnlineOnPeers = append(ipv4OnlineOnPeers, peer.String())
+					}
+					if peerCrStates.Caches[cacheName].Ipv6Available {
+						ipv6OnlineOnPeers = append(ipv6OnlineOnPeers, peer.String())
+					}
 				}
 			}
 
 			if len(onlineOnPeers) > 0 {
 				available = true
+				ipv4Available = ipv4Available || len(ipv4OnlineOnPeers) > 0 // optimistically accept true from local or peer
+				ipv6Available = ipv6Available || len(ipv6OnlineOnPeers) > 0 // optimistically accept true from local or peer
 
 				if !override {
 					overrideCondition = fmt.Sprintf("detected; healthy on (at least) %s", strings.Join(onlineOnPeers, ", "))
@@ -111,22 +132,17 @@ func combineCacheState(cacheName tc.CacheName, localCacheState tc.IsAvailable, e
 	}
 
 	if overrideCondition != "" {
-		events.Add(health.Event{Time: health.Time(time.Now()), Description: fmt.Sprintf("Health protocol override condition %s", overrideCondition), Name: cacheName.String(), Hostname: cacheName.String(), Type: toData.ServerTypes[cacheName].String(), Available: available})
+		events.Add(health.Event{Time: health.Time(time.Now()), Description: fmt.Sprintf("Health protocol override condition %s", overrideCondition), Name: cacheName.String(), Hostname: cacheName.String(), Type: toData.ServerTypes[cacheName].String(), Available: available, IPv4Available: ipv4Available, IPv6Available: ipv6Available})
 	}
 
-	combinedStates.AddCache(cacheName, tc.IsAvailable{IsAvailable: available})
+	combinedStates.AddCache(cacheName, tc.IsAvailable{IsAvailable: available, Ipv4Available: ipv4Available, Ipv6Available: ipv6Available})
 }
 
 func combineDSState(
 	deliveryServiceName tc.DeliveryServiceName,
 	localDeliveryService tc.CRStatesDeliveryService,
-	events health.ThreadsafeEvents,
-	peerOptimistic bool,
 	peerStates peer.CRStatesPeersThreadsafe,
-	localStates tc.CRStates,
 	combinedStates peer.CRStatesThreadsafe,
-	overrideMap map[tc.CacheName]bool,
-	toData todata.TOData,
 ) {
 	deliveryService := tc.CRStatesDeliveryService{IsAvailable: false, DisabledLocations: []tc.CacheGroupName{}} // important to initialize DisabledLocations, so JSON is `[]` not `null`
 	if localDeliveryService.IsAvailable {
@@ -185,11 +201,11 @@ func pruneCombinedCaches(combinedStates peer.CRStatesThreadsafe, localStates tc.
 
 func combineCrStates(events health.ThreadsafeEvents, peerOptimistic bool, peerStates peer.CRStatesPeersThreadsafe, localStates tc.CRStates, combinedStates peer.CRStatesThreadsafe, overrideMap map[tc.CacheName]bool, toData todata.TOData) {
 	for cacheName, localCacheState := range localStates.Caches { // localStates gets pruned when servers are disabled, it's the source of truth
-		combineCacheState(cacheName, localCacheState, events, peerOptimistic, peerStates, localStates, combinedStates, overrideMap, toData)
+		combineCacheState(cacheName, localCacheState, events, peerOptimistic, peerStates, combinedStates, overrideMap, toData)
 	}
 
 	for deliveryServiceName, localDeliveryService := range localStates.DeliveryService {
-		combineDSState(deliveryServiceName, localDeliveryService, events, peerOptimistic, peerStates, localStates, combinedStates, overrideMap, toData)
+		combineDSState(deliveryServiceName, localDeliveryService, peerStates, combinedStates)
 	}
 
 	pruneCombinedDSState(combinedStates, localStates, peerStates)

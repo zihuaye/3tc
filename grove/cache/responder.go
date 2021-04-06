@@ -19,11 +19,11 @@ import (
 
 	"github.com/apache/trafficcontrol/grove/cachedata"
 	"github.com/apache/trafficcontrol/grove/plugin"
-	"github.com/apache/trafficcontrol/grove/remapdata"
 	"github.com/apache/trafficcontrol/grove/stat"
 	"github.com/apache/trafficcontrol/grove/web"
 
 	"github.com/apache/trafficcontrol/lib/go-log"
+	"github.com/apache/trafficcontrol/lib/go-rfc"
 )
 
 // Responder is an object encapsulating the cache's response to the client. It holds all the data necessary to respond, log the response, and add the stats.
@@ -43,7 +43,7 @@ type Responder struct {
 
 func DefaultParentRespData() cachedata.ParentRespData {
 	return cachedata.ParentRespData{
-		Reuse:               remapdata.ReuseCannot,
+		Reuse:               rfc.ReuseCannot,
 		OriginCode:          0,
 		OriginReqSuccess:    false,
 		OriginConnectFailed: false,
@@ -100,12 +100,12 @@ func (r *Responder) Do() {
 	web.TryFlush(r.W) // TODO remove? Let plugins do it, if they need to?
 
 	respSuccess := err != nil
-	respData := cachedata.RespData{*r.ResponseCode, bytesSent, respSuccess, isCacheHit(r.Reuse, r.OriginCode)}
+	respData := cachedata.RespData{RespCode: *r.ResponseCode, BytesWritten: bytesSent, RespSuccess: respSuccess, CacheHit: isCacheHit(r.Reuse, r.OriginCode)}
 	arData := plugin.AfterRespondData{W: r.W, Stats: r.Stats, ReqData: r.ReqData, SrvrData: r.SrvrData, ParentRespData: r.ParentRespData, RespData: respData, RequestID: r.RequestID}
 	r.Plugins.OnAfterRespond(r.PluginCfg, r.PluginContext, arData)
 }
 
-func isCacheHit(reuse remapdata.Reuse, originCode int) bool {
+func isCacheHit(reuse rfc.Reuse, originCode int) bool {
 	// TODO move to web? remap?
-	return reuse == remapdata.ReuseCan || ((reuse == remapdata.ReuseMustRevalidate || reuse == remapdata.ReuseMustRevalidateCanStale) && originCode == http.StatusNotModified)
+	return reuse == rfc.ReuseCan || ((reuse == rfc.ReuseMustRevalidate || reuse == rfc.ReuseMustRevalidateCanStale) && originCode == http.StatusNotModified)
 }

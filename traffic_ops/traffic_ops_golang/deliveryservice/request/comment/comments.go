@@ -23,6 +23,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/lib/go-tc/tovalidate"
@@ -39,25 +40,38 @@ type TODeliveryServiceRequestComment struct {
 	tc.DeliveryServiceRequestCommentNullable
 }
 
+func (v *TODeliveryServiceRequestComment) GetLastUpdated() (*time.Time, bool, error) {
+	return api.GetLastUpdated(v.APIInfo().Tx, *v.ID, "deliveryservice_request_comment")
+}
+
 func (v *TODeliveryServiceRequestComment) SetLastUpdated(t tc.TimeNoMod) { v.LastUpdated = &t }
 func (v *TODeliveryServiceRequestComment) InsertQuery() string           { return insertQuery() }
+func (v *TODeliveryServiceRequestComment) SelectMaxLastUpdatedQuery(where, orderBy, pagination, tableName string) string {
+	return `SELECT max(t) from (
+		SELECT max(dsrc.last_updated) as t from deliveryservice_request_comment dsrc
+JOIN tm_user a ON dsrc.author_id = a.id
+JOIN deliveryservice_request dsr ON dsrc.deliveryservice_request_id = dsr.id ` + where + orderBy + pagination +
+		` UNION ALL
+	select max(last_updated) as t from last_deleted l where l.table_name='deliveryservice_request_comment') as res`
+}
+
 func (v *TODeliveryServiceRequestComment) NewReadObj() interface{} {
 	return &tc.DeliveryServiceRequestCommentNullable{}
 }
 func (v *TODeliveryServiceRequestComment) SelectQuery() string { return selectQuery() }
 func (v *TODeliveryServiceRequestComment) ParamColumns() map[string]dbhelpers.WhereColumnInfo {
 	return map[string]dbhelpers.WhereColumnInfo{
-		"authorId":                 dbhelpers.WhereColumnInfo{"dsrc.author_id", nil},
-		"author":                   dbhelpers.WhereColumnInfo{"a.username", nil},
-		"deliveryServiceRequestId": dbhelpers.WhereColumnInfo{"dsrc.deliveryservice_request_id", nil},
-		"id": dbhelpers.WhereColumnInfo{"dsrc.id", api.IsInt},
+		"authorId":                 dbhelpers.WhereColumnInfo{Column: "dsrc.author_id"},
+		"author":                   dbhelpers.WhereColumnInfo{Column: "a.username"},
+		"deliveryServiceRequestId": dbhelpers.WhereColumnInfo{Column: "dsrc.deliveryservice_request_id"},
+		"id":                       dbhelpers.WhereColumnInfo{Column: "dsrc.id", Checker: api.IsInt},
 	}
 }
 func (v *TODeliveryServiceRequestComment) UpdateQuery() string { return updateQuery() }
 func (v *TODeliveryServiceRequestComment) DeleteQuery() string { return deleteQuery() }
 
 func (comment TODeliveryServiceRequestComment) GetKeyFieldsInfo() []api.KeyFieldInfo {
-	return []api.KeyFieldInfo{{"id", api.GetIntKey}}
+	return []api.KeyFieldInfo{{Field: "id", Func: api.GetIntKey}}
 }
 
 //Implementation of the Identifier, Validator interface functions
@@ -98,11 +112,12 @@ func (comment *TODeliveryServiceRequestComment) Create() (error, error, int) {
 	return api.GenericCreate(comment)
 }
 
-func (comment *TODeliveryServiceRequestComment) Read() ([]interface{}, error, error, int) {
-	return api.GenericRead(comment)
+func (comment *TODeliveryServiceRequestComment) Read(h http.Header, useIMS bool) ([]interface{}, error, error, int, *time.Time) {
+	api.DefaultSort(comment.APIInfo(), "xmlId")
+	return api.GenericRead(h, comment, useIMS)
 }
 
-func (comment *TODeliveryServiceRequestComment) Update() (error, error, int) {
+func (comment *TODeliveryServiceRequestComment) Update(h http.Header) (error, error, int) {
 	current := TODeliveryServiceRequestComment{}
 	err := comment.ReqInfo.Tx.QueryRowx(selectQuery() + `WHERE dsrc.id=` + strconv.Itoa(*comment.ID)).StructScan(&current)
 	if err != nil {
@@ -114,7 +129,7 @@ func (comment *TODeliveryServiceRequestComment) Update() (error, error, int) {
 		return errors.New("Comments can only be updated by the author"), nil, http.StatusBadRequest
 	}
 
-	return api.GenericUpdate(comment)
+	return api.GenericUpdate(h, comment)
 }
 
 func (comment *TODeliveryServiceRequestComment) Delete() (error, error, int) {

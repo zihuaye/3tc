@@ -21,7 +21,7 @@ module.exports = function() {
 	// selectDropdownbyNum - pass in the <SELECT> element and a option number, typically 1
 	this.selectDropdownbyNum = function ( element, optionNum ) {
 		if (optionNum){
-			var options = element.all(by.tagName('option'))
+			element.all(by.tagName('option'))
 				.then(function(options){
 					options[optionNum].click();
 				});
@@ -31,4 +31,17 @@ module.exports = function() {
 	this.urlPath = function ( url ) {
 		return '/' + String(url).split('/').slice(3).join('/');
 	};
+
+	this.shuffle = (string) => {
+		return [...string].sort(
+			(a, b) => {
+				return Math.floor(Math.random() * 3) - 1;
+			}
+		).join("");
+	}
+
+	this.random = (max) => {
+		return Math.round(Math.random() * max);   
+	}
+
 };

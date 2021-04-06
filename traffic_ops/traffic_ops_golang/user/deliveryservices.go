@@ -22,18 +22,21 @@ package user
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
+	"github.com/apache/trafficcontrol/lib/go-util"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/api"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/auth"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/tenant"
 )
 
 func GetDSes(w http.ResponseWriter, r *http.Request) {
+	alt := util.StrPtr("GET deliveryservices?accessibleTo={{tenantId}")
 	inf, userErr, sysErr, errCode := api.NewInfo(r, []string{"id"}, []string{"id"})
 	if userErr != nil || sysErr != nil {
-		api.HandleErr(w, r, inf.Tx.Tx, errCode, userErr, sysErr)
+		api.HandleDeprecatedErr(w, r, inf.Tx.Tx, errCode, userErr, sysErr, alt)
 		return
 	}
 	defer inf.Close()
@@ -41,22 +44,22 @@ func GetDSes(w http.ResponseWriter, r *http.Request) {
 	dsUserID := inf.IntParams["id"]
 	dses, err := getUserDSes(inf.Tx.Tx, dsUserID)
 	if err != nil {
-		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("getting user delivery services: "+err.Error()))
+		api.HandleDeprecatedErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("getting user delivery services: "+err.Error()), alt)
 		return
 	}
 
 	dses, err = filterAuthorized(inf.Tx.Tx, dses, inf.User)
 	if err != nil {
-		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("filtering user-authorized delivery services: "+err.Error()))
+		api.HandleDeprecatedErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("filtering user-authorized delivery services: "+err.Error()), alt)
 		return
 	}
-	api.WriteResp(w, r, dses)
+	api.WriteAlertsObj(w, r, http.StatusOK, api.CreateDeprecationAlerts(alt), dses)
 }
 
 func GetAvailableDSes(w http.ResponseWriter, r *http.Request) {
 	inf, userErr, sysErr, errCode := api.NewInfo(r, []string{"id"}, []string{"id"})
 	if userErr != nil || sysErr != nil {
-		api.HandleErr(w, r, inf.Tx.Tx, errCode, userErr, sysErr)
+		api.HandleDeprecatedErr(w, r, inf.Tx.Tx, errCode, userErr, sysErr, nil)
 		return
 	}
 	defer inf.Close()
@@ -64,16 +67,18 @@ func GetAvailableDSes(w http.ResponseWriter, r *http.Request) {
 	dsUserID := inf.IntParams["id"]
 	dses, err := getUserAvailableDSes(inf.Tx.Tx, dsUserID)
 	if err != nil {
-		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("getting user delivery services: "+err.Error()))
+		api.HandleDeprecatedErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, fmt.Errorf("getting user delivery services: %v", err), nil)
 		return
 	}
 
 	dses, err = filterAvailableAuthorized(inf.Tx.Tx, dses, inf.User)
 	if err != nil {
-		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("filtering user-authorized delivery services: "+err.Error()))
+		api.HandleDeprecatedErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, fmt.Errorf("filtering user-authorized delivery services: %v", err), nil)
 		return
 	}
-	api.WriteResp(w, r, dses)
+
+	alerts := api.CreateDeprecationAlerts(nil)
+	api.WriteAlertsObj(w, r, http.StatusOK, alerts, dses)
 }
 
 func filterAuthorized(tx *sql.Tx, dses []tc.DeliveryServiceNullable, user *auth.CurrentUser) ([]tc.DeliveryServiceNullable, error) {
@@ -192,7 +197,12 @@ WHERE dsu.tm_user_id = $1
 	dses := []tc.DeliveryServiceNullable{}
 	for rows.Next() {
 		ds := tc.DeliveryServiceNullable{}
-		err := rows.Scan(&ds.Active, &ds.AnonymousBlockingEnabled, &ds.CacheURL, &ds.CCRDNSTTL, &ds.CDNID, &ds.CDNName, &ds.CheckPath, &ds.DeepCachingType, &ds.DisplayName, &ds.DNSBypassCNAME, &ds.DNSBypassIP, &ds.DNSBypassIP6, &ds.DNSBypassTTL, &ds.DSCP, &ds.EdgeHeaderRewrite, &ds.GeoLimitRedirectURL, &ds.GeoLimit, &ds.GeoLimitCountries, &ds.GeoProvider, &ds.GlobalMaxMBPS, &ds.GlobalMaxTPS, &ds.FQPacingRate, &ds.HTTPBypassFQDN, &ds.ID, &ds.InfoURL, &ds.InitialDispersion, &ds.IPV6RoutingEnabled, &ds.LastUpdated, &ds.LogsEnabled, &ds.LongDesc, &ds.LongDesc1, &ds.LongDesc2, &ds.MaxDNSAnswers, &ds.MidHeaderRewrite, &ds.MissLat, &ds.MissLong, &ds.MultiSiteOrigin, &ds.OrgServerFQDN, &ds.OriginShield, &ds.ProfileID, &ds.ProfileName, &ds.ProfileDesc, &ds.Protocol, &ds.QStringIgnore, &ds.RangeRequestHandling, &ds.RegexRemap, &ds.RegionalGeoBlocking, &ds.RemapText, &ds.RoutingName, &ds.SigningAlgorithm, &ds.SSLKeyVersion, &ds.TenantID, &ds.Tenant, &ds.TRRequestHeaders, &ds.TRResponseHeaders, &ds.Type, &ds.TypeID, &ds.XMLID)
+		err := rows.Scan(&ds.Active, &ds.AnonymousBlockingEnabled, &ds.CacheURL, &ds.CCRDNSTTL, &ds.CDNID, &ds.CDNName,
+			&ds.CheckPath, &ds.DeepCachingType, &ds.DisplayName, &ds.DNSBypassCNAME, &ds.DNSBypassIP, &ds.DNSBypassIP6,
+			&ds.DNSBypassTTL, &ds.DSCP, &ds.EdgeHeaderRewrite, &ds.GeoLimitRedirectURL, &ds.GeoLimit, &ds.GeoLimitCountries,
+			&ds.GeoProvider, &ds.GlobalMaxMBPS, &ds.GlobalMaxTPS, &ds.FQPacingRate, &ds.HTTPBypassFQDN, &ds.ID, &ds.InfoURL,
+			&ds.InitialDispersion, &ds.IPV6RoutingEnabled, &ds.LastUpdated, &ds.LogsEnabled, &ds.LongDesc, &ds.LongDesc1,
+			&ds.LongDesc2, &ds.MaxDNSAnswers, &ds.MidHeaderRewrite, &ds.MissLat, &ds.MissLong, &ds.MultiSiteOrigin, &ds.OrgServerFQDN, &ds.OriginShield, &ds.ProfileID, &ds.ProfileName, &ds.ProfileDesc, &ds.Protocol, &ds.QStringIgnore, &ds.RangeRequestHandling, &ds.RegexRemap, &ds.RegionalGeoBlocking, &ds.RemapText, &ds.RoutingName, &ds.SigningAlgorithm, &ds.SSLKeyVersion, &ds.TenantID, &ds.Tenant, &ds.TRRequestHeaders, &ds.TRResponseHeaders, &ds.Type, &ds.TypeID, &ds.XMLID)
 		if err != nil {
 			return nil, errors.New("scanning user delivery services : " + err.Error())
 		}
@@ -230,15 +240,4 @@ WHERE dsu.tm_user_id = $1
 		dses = append(dses, ds)
 	}
 	return dses, nil
-}
-
-func getUserTenantIDByID(tx *sql.Tx, id int) (*int, bool, error) {
-	tenantID := (*int)(nil)
-	if err := tx.QueryRow(`SELECT tenant_id FROM tm_user WHERE id = $1`, id).Scan(&tenantID); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, false, nil
-		}
-		return nil, false, errors.New("querying user: " + err.Error())
-	}
-	return tenantID, true, nil
 }

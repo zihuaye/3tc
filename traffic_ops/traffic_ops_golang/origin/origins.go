@@ -25,6 +25,9 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
+
+	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/util/ims"
 
 	"github.com/apache/trafficcontrol/lib/go-log"
 	"github.com/apache/trafficcontrol/lib/go-tc"
@@ -51,7 +54,7 @@ func (origin *TOOrigin) SetID(i int) {
 }
 
 func (origin TOOrigin) GetKeyFieldsInfo() []api.KeyFieldInfo {
-	return []api.KeyFieldInfo{{"id", api.GetIntKey}}
+	return []api.KeyFieldInfo{{Field: "id", Func: api.GetIntKey}}
 }
 
 //Implementation of the Identifier, Validator interface functions
@@ -129,57 +132,67 @@ func (origin *TOOrigin) IsTenantAuthorized(user *auth.CurrentUser) (bool, error)
 	return tenant.IsResourceAuthorizedToUserTx(*currentTenantID, user, origin.ReqInfo.Tx.Tx)
 }
 
-func (origin *TOOrigin) Read() ([]interface{}, error, error, int) {
+func (origin *TOOrigin) Read(h http.Header, useIMS bool) ([]interface{}, error, error, int, *time.Time) {
 	returnable := []interface{}{}
-
-	origins, errs, errType := getOrigins(origin.ReqInfo.Params, origin.ReqInfo.Tx, origin.ReqInfo.User)
-	if len(errs) > 0 {
-		userErr, sysErr, errCode := api.TypeErrsToAPIErr(errs, errType)
-		return nil, userErr, sysErr, errCode
+	origins, userErr, sysErr, errCode, maxTime := getOrigins(h, origin.ReqInfo.Params, origin.ReqInfo.Tx, origin.ReqInfo.User, useIMS)
+	if userErr != nil || sysErr != nil {
+		return nil, userErr, sysErr, errCode, nil
 	}
 
 	for _, origin := range origins {
 		returnable = append(returnable, origin)
 	}
 
-	return returnable, nil, nil, http.StatusOK
+	return returnable, nil, nil, http.StatusOK, maxTime
 }
 
-func getOrigins(params map[string]string, tx *sqlx.Tx, user *auth.CurrentUser) ([]tc.Origin, []error, tc.ApiErrorType) {
+func getOrigins(h http.Header, params map[string]string, tx *sqlx.Tx, user *auth.CurrentUser, useIMS bool) ([]tc.Origin, error, error, int, *time.Time) {
 	var rows *sqlx.Rows
 	var err error
+	var maxTime time.Time
+	var runSecond bool
 
 	// Query Parameters to Database Query column mappings
 	// see the fields mapped in the SQL query
 	queryParamsToSQLCols := map[string]dbhelpers.WhereColumnInfo{
-		"cachegroup":      dbhelpers.WhereColumnInfo{"o.cachegroup", api.IsInt},
-		"coordinate":      dbhelpers.WhereColumnInfo{"o.coordinate", api.IsInt},
-		"deliveryservice": dbhelpers.WhereColumnInfo{"o.deliveryservice", api.IsInt},
-		"id":              dbhelpers.WhereColumnInfo{"o.id", api.IsInt},
-		"name":            dbhelpers.WhereColumnInfo{"o.name", nil},
-		"primary":         dbhelpers.WhereColumnInfo{"o.is_primary", api.IsBool},
-		"profileId":       dbhelpers.WhereColumnInfo{"o.profile", api.IsInt},
-		"tenant":          dbhelpers.WhereColumnInfo{"o.tenant", api.IsInt},
+		"cachegroup":      dbhelpers.WhereColumnInfo{Column: "o.cachegroup", Checker: api.IsInt},
+		"coordinate":      dbhelpers.WhereColumnInfo{Column: "o.coordinate", Checker: api.IsInt},
+		"deliveryservice": dbhelpers.WhereColumnInfo{Column: "o.deliveryservice", Checker: api.IsInt},
+		"id":              dbhelpers.WhereColumnInfo{Column: "o.id", Checker: api.IsInt},
+		"name":            dbhelpers.WhereColumnInfo{Column: "o.name"},
+		"primary":         dbhelpers.WhereColumnInfo{Column: "o.is_primary", Checker: api.IsBool},
+		"profileId":       dbhelpers.WhereColumnInfo{Column: "o.profile", Checker: api.IsInt},
+		"tenant":          dbhelpers.WhereColumnInfo{Column: "o.tenant", Checker: api.IsInt},
 	}
 
-	where, orderBy, queryValues, errs := dbhelpers.BuildWhereAndOrderBy(params, queryParamsToSQLCols)
+	where, orderBy, pagination, queryValues, errs := dbhelpers.BuildWhereAndOrderByAndPagination(params, queryParamsToSQLCols)
 	if len(errs) > 0 {
-		return nil, errs, tc.DataConflictError
+		return nil, util.JoinErrs(errs), nil, http.StatusBadRequest, nil
+	}
+	if useIMS {
+		runSecond, maxTime = ims.TryIfModifiedSinceQuery(tx, h, queryValues, selectMaxLastUpdatedQuery(where))
+		if !runSecond {
+			log.Debugln("IMS HIT")
+			return []tc.Origin{}, nil, nil, http.StatusNotModified, &maxTime
+		}
+		log.Debugln("IMS MISS")
+	} else {
+		log.Debugln("Non IMS request")
 	}
 
 	tenantIDs, err := tenant.GetUserTenantIDListTx(tx.Tx, user.TenantID)
 	if err != nil {
 		log.Errorln("received error querying for user's tenants: " + err.Error())
-		return nil, []error{tc.DBError}, tc.SystemError
+		return nil, nil, tc.DBError, http.StatusInternalServerError, nil
 	}
 	where, queryValues = dbhelpers.AddTenancyCheck(where, queryValues, "o.tenant", tenantIDs)
 
-	query := selectQuery() + where + orderBy
+	query := selectQuery() + where + orderBy + pagination
 	log.Debugln("Query is ", query)
 
 	rows, err = tx.NamedQuery(query, queryValues)
 	if err != nil {
-		return nil, []error{fmt.Errorf("querying: %v", err)}, tc.SystemError
+		return nil, nil, fmt.Errorf("querying: %v", err), http.StatusInternalServerError, nil
 	}
 	defer rows.Close()
 
@@ -188,11 +201,23 @@ func getOrigins(params map[string]string, tx *sqlx.Tx, user *auth.CurrentUser) (
 	for rows.Next() {
 		var s tc.Origin
 		if err = rows.StructScan(&s); err != nil {
-			return nil, []error{fmt.Errorf("getting origins: %v", err)}, tc.SystemError
+			return nil, nil, fmt.Errorf("getting origins: %v", err), http.StatusInternalServerError, nil
 		}
 		origins = append(origins, s)
 	}
-	return origins, nil, tc.NoError
+	return origins, nil, nil, http.StatusOK, &maxTime
+}
+
+func selectMaxLastUpdatedQuery(where string) string {
+	return `SELECT max(t) from (
+		SELECT max(o.last_updated) as t from origin as o
+	JOIN deliveryservice d ON o.deliveryservice = d.id
+LEFT JOIN cachegroup cg ON o.cachegroup = cg.id
+LEFT JOIN coordinate c ON o.coordinate = c.id
+LEFT JOIN profile p ON o.profile = p.id
+LEFT JOIN tenant t ON o.tenant = t.id ` + where +
+		` UNION ALL
+	select max(last_updated) as t from last_deleted l where l.table_name='origin') as res`
 }
 
 func selectQuery() string {
@@ -229,34 +254,34 @@ LEFT JOIN tenant t ON o.tenant = t.id`
 	return selectStmt
 }
 
-func checkTenancy(originTenantID, deliveryserviceID *int, tx *sqlx.Tx, user *auth.CurrentUser) (error, tc.ApiErrorType) {
+func checkTenancy(originTenantID, deliveryserviceID *int, tx *sqlx.Tx, user *auth.CurrentUser) (error, error, int) {
 	if originTenantID == nil {
-		return tc.NilTenantError, tc.ForbiddenError
+		return tc.NilTenantError, nil, http.StatusForbidden
 	}
 	authorized, err := tenant.IsResourceAuthorizedToUserTx(*originTenantID, user, tx.Tx)
 	if err != nil {
-		return err, tc.SystemError
+		return nil, err, http.StatusInternalServerError
 	}
 	if !authorized {
-		return tc.TenantUserNotAuthError, tc.ForbiddenError
+		return tc.TenantUserNotAuthError, nil, http.StatusForbidden
 	}
 
 	var deliveryserviceTenantID int
 	if err := tx.QueryRow(`SELECT tenant_id FROM deliveryservice where id = $1`, *deliveryserviceID).Scan(&deliveryserviceTenantID); err != nil {
 		if err == sql.ErrNoRows {
-			return errors.New("checking tenancy: requested delivery service does not exist"), tc.DataConflictError
+			return errors.New("checking tenancy: requested delivery service does not exist"), nil, http.StatusBadRequest
 		}
 		log.Errorf("could not get tenant_id from deliveryservice %d: %++v\n", *deliveryserviceID, err)
-		return err, tc.SystemError
+		return err, nil, http.StatusBadRequest
 	}
 	authorized, err = tenant.IsResourceAuthorizedToUserTx(deliveryserviceTenantID, user, tx.Tx)
 	if err != nil {
-		return err, tc.SystemError
+		return err, nil, http.StatusBadRequest
 	}
 	if !authorized {
-		return tc.TenantDSUserNotAuthError, tc.ForbiddenError
+		return tc.TenantDSUserNotAuthError, nil, http.StatusForbidden
 	}
-	return nil, tc.NoError
+	return nil, nil, http.StatusOK
 }
 
 //The TOOrigin implementation of the Updater interface
@@ -264,19 +289,29 @@ func checkTenancy(originTenantID, deliveryserviceID *int, tx *sqlx.Tx, user *aut
 //ParsePQUniqueConstraintError is used to determine if an origin with conflicting values exists
 //if so, it will return an errorType of DataConflict and the type should be appended to the
 //generic error message returned
-func (origin *TOOrigin) Update() (error, error, int) {
+func (origin *TOOrigin) Update(h http.Header) (error, error, int) {
 	// TODO: enhance tenancy framework to handle this in isTenantAuthorized()
-	err, errType := checkTenancy(origin.TenantID, origin.DeliveryServiceID, origin.ReqInfo.Tx, origin.ReqInfo.User)
-	if err != nil {
-		return api.TypeErrToAPIErr(err, errType)
+	userErr, sysErr, errCode := checkTenancy(origin.TenantID, origin.DeliveryServiceID, origin.ReqInfo.Tx, origin.ReqInfo.User)
+	if userErr != nil || sysErr != nil {
+		return userErr, sysErr, errCode
 	}
 
 	isPrimary := false
 	ds := 0
-	q := `SELECT is_primary, deliveryservice FROM origin WHERE id = $1`
-	if err := origin.ReqInfo.Tx.QueryRow(q, *origin.ID).Scan(&isPrimary, &ds); err != nil {
+	var existingLastUpdated *tc.TimeNoMod
+
+	q := `SELECT is_primary, deliveryservice, last_updated FROM origin WHERE id = $1`
+	if err := origin.ReqInfo.Tx.QueryRow(q, *origin.ID).Scan(&isPrimary, &ds, &existingLastUpdated); err != nil {
+		if err == sql.ErrNoRows {
+			return errors.New("origin not found"), nil, http.StatusNotFound
+		}
 		return nil, errors.New("origin update: querying: " + err.Error()), http.StatusInternalServerError
 	}
+
+	if !api.IsUnmodified(h, existingLastUpdated.Time) {
+		return errors.New("resource was modified"), nil, http.StatusPreconditionFailed
+	}
+
 	if isPrimary && *origin.DeliveryServiceID != ds {
 		return errors.New("cannot update the delivery service of a primary origin"), nil, http.StatusBadRequest
 	}
@@ -333,9 +368,9 @@ WHERE id=:id RETURNING last_updated`
 //to be added to the struct
 func (origin *TOOrigin) Create() (error, error, int) {
 	// TODO: enhance tenancy framework to handle this in isTenantAuthorized()
-	err, errType := checkTenancy(origin.TenantID, origin.DeliveryServiceID, origin.ReqInfo.Tx, origin.ReqInfo.User)
-	if err != nil {
-		return api.TypeErrToAPIErr(err, errType)
+	userErr, sysErr, errCode := checkTenancy(origin.TenantID, origin.DeliveryServiceID, origin.ReqInfo.Tx, origin.ReqInfo.User)
+	if userErr != nil || sysErr != nil {
+		return userErr, sysErr, errCode
 	}
 
 	resultRows, err := origin.ReqInfo.Tx.NamedQuery(insertQuery(), origin)
@@ -397,6 +432,9 @@ func (origin *TOOrigin) Delete() (error, error, int) {
 	isPrimary := false
 	q := `SELECT is_primary FROM origin WHERE id = $1`
 	if err := origin.ReqInfo.Tx.QueryRow(q, *origin.ID).Scan(&isPrimary); err != nil {
+		if err == sql.ErrNoRows {
+			return errors.New("origin not found"), nil, http.StatusNotFound
+		}
 		return nil, errors.New("origin delete: is_primary scanning: " + err.Error()), http.StatusInternalServerError
 	}
 	if isPrimary {
@@ -412,11 +450,7 @@ func (origin *TOOrigin) Delete() (error, error, int) {
 		return nil, errors.New("origin delete: getting rows affected: " + err.Error()), http.StatusInternalServerError
 	}
 	if rowsAffected != 1 {
-		if rowsAffected < 1 {
-			return nil, nil, http.StatusNotFound
-		} else {
-			return nil, errors.New("origin delete: multiple rows affected"), http.StatusInternalServerError
-		}
+		return nil, errors.New("origin delete: multiple rows affected"), http.StatusInternalServerError
 	}
 
 	return nil, nil, http.StatusOK

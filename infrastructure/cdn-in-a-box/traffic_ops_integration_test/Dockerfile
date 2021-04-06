@@ -15,28 +15,63 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM golang:1.11 AS integration-builder
+FROM alpine:3.13 AS integration-builder
 
-# integration source and dependencies
-COPY ./lib/ /go/src/github.com/apache/trafficcontrol/lib/
-COPY ./vendor/ /go/src/github.com/apache/trafficcontrol/vendor/
-COPY ./traffic_ops/client/ /go/src/github.com/apache/trafficcontrol/traffic_ops/client/
-COPY ./traffic_ops/vendor/ /go/src/github.com/apache/trafficcontrol/traffic_ops/vendor/
-COPY ./infrastructure/cdn-in-a-box/traffic_ops_integration_test/ /go/src/github.com/apache/trafficcontrol/infrastructure/cdn-in-a-box/traffic_ops_integration_test/
-COPY ./traffic_ops/testing/api /go/src/github.com/apache/trafficcontrol/traffic_ops/testing/api
-COPY ./traffic_ops/traffic_ops_golang /go/src/github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang
-COPY ./infrastructure/cdn-in-a-box/ /go/src/github.com/apache/trafficcontrol/infrastructure/cdn-in-a-box/
+COPY GO_VERSION /
+RUN set -o errexit; \
+    go_version=$(cat /GO_VERSION); \
+    wget -O go.tar.gz https://dl.google.com/go/go${go_version}.linux-amd64.tar.gz; \
+    tar -C /usr/local -xvzf go.tar.gz; \
+    ln -s /usr/local/go/bin/go /usr/bin/go; \
+    rm go.tar.gz; \
+    architecture=$(uname -m); \
+    mkdir lib64; \
+    # Use musl libc where the go binary expects glibc
+    # Less-generalized: ln -s /lib/ld-musl-x86_64.so.1 /lib64/ld-linux-x86-64.so.2
+    ln -s /lib/ld-musl-${architecture}.so.[0-9] /lib64/ld-linux-${architecture//_/-}.so.2; \
+    # Test the go binary
+    go version
+ENV GOPATH=/go
+ENV PATH="${PATH}:${GOPATH}/bin"
 
-# if we end up using a different versioning convention, the compile command will need to change
-WORKDIR /go/src/github.com/apache/trafficcontrol/traffic_ops/testing/api
-RUN go get -u golang.org/x/net/publicsuffix golang.org/x/crypto/scrypt
-RUN go test -c ./v1* -o traffic_ops_integration_test
+RUN apk add --no-cache --update git gcc
 
 RUN go get -u github.com/jstemmer/go-junit-report
 RUN cd /go/src/github.com/jstemmer/go-junit-report && go build
 
-FROM debian:stretch
-RUN apt-get update && apt-get install -y netcat curl dnsutils net-tools vim && apt-get clean
+COPY ./vendor/ /go/src/github.com/apache/trafficcontrol/vendor/
+
+# integration source and dependencies
+COPY ./infrastructure/cdn-in-a-box/ /go/src/github.com/apache/trafficcontrol/infrastructure/cdn-in-a-box/
+COPY ./lib/ /go/src/github.com/apache/trafficcontrol/lib/
+COPY ./traffic_ops/toclientlib/ /go/src/github.com/apache/trafficcontrol/traffic_ops/toclientlib/
+COPY ./traffic_ops/v1-client/ /go/src/github.com/apache/trafficcontrol/traffic_ops/v1-client/
+COPY ./traffic_ops/v2-client/ /go/src/github.com/apache/trafficcontrol/traffic_ops/v2-client/
+COPY ./traffic_ops/v3-client/ /go/src/github.com/apache/trafficcontrol/traffic_ops/v3-client/
+COPY ./traffic_ops/v4-client/ /go/src/github.com/apache/trafficcontrol/traffic_ops/v4-client/
+COPY ./traffic_ops/testing/api /go/src/github.com/apache/trafficcontrol/traffic_ops/testing/api
+COPY ./traffic_ops/traffic_ops_golang /go/src/github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang
+
+COPY ./go.mod ./go.sum /go/src/github.com/apache/trafficcontrol/
+# if we end up using a different versioning convention, the compile command will need to change
+WORKDIR /go/src/github.com/apache/trafficcontrol/traffic_ops/testing/api
+RUN go mod vendor -v
+
+ENV CGO_ENABLED=0
+RUN set -o errexit -o xtrace;\
+    for api_version in v1 v2 v3 v4; do\
+        go test -c ./$api_version -ldflags="-w -s" -o traffic_ops_${api_version}_integration_test;\
+    done
+
+FROM alpine:3.13
+
+RUN apk add --no-cache --update \
+  curl \
+  wget \
+  bash \
+  nmap \
+  bind-tools \
+  net-tools
 
 # MANIFEST
 # run.sh                        (wait on TO, then run bin)
@@ -47,14 +82,24 @@ RUN apt-get update && apt-get install -y netcat curl dnsutils net-tools vim && a
 COPY ./infrastructure/cdn-in-a-box/traffic_ops_integration_test/run.sh    /opt/integration/app/
 COPY ./infrastructure/cdn-in-a-box/traffic_ops/to-access.sh /opt/integration/app/
 COPY ./infrastructure/cdn-in-a-box/traffic_ops_integration_test/config.sh /opt/integration/app/
-COPY ./traffic_ops/testing/api/v14/tc-fixtures.json         /opt/integration/app/
+COPY ./traffic_ops/testing/api/v1/tc-fixtures.json /opt/integration/app/tc-fixtures-v1.json
+COPY ./traffic_ops/testing/api/v2/tc-fixtures.json /opt/integration/app/tc-fixtures-v2.json
+COPY ./traffic_ops/testing/api/v3/tc-fixtures.json /opt/integration/app/tc-fixtures-v3.json
+COPY ./traffic_ops/testing/api/v4/tc-fixtures.json /opt/integration/app/tc-fixtures-v4.json
 COPY --from=integration-builder \
-    /go/src/github.com/apache/trafficcontrol/traffic_ops/testing/api/traffic_ops_integration_test \
+    /go/src/github.com/apache/trafficcontrol/traffic_ops/testing/api/traffic_ops_v1_integration_test \
+    /go/src/github.com/apache/trafficcontrol/traffic_ops/testing/api/traffic_ops_v2_integration_test \
+    /go/src/github.com/apache/trafficcontrol/traffic_ops/testing/api/traffic_ops_v3_integration_test \
+    /go/src/github.com/apache/trafficcontrol/traffic_ops/testing/api/traffic_ops_v4_integration_test \
     /opt/integration/app/
 
 COPY --from=integration-builder \
     /go/bin/go-junit-report \
     /opt/integration/app/
+
+COPY infrastructure/cdn-in-a-box/dns/set-dns.sh \
+     infrastructure/cdn-in-a-box/dns/insert-self-into-dns.sh \
+     /usr/local/sbin/
 
 VOLUME ["/junit"]
 

@@ -30,9 +30,6 @@ services:
   trafficops:
     ports:
       - "6443:443"
-  trafficops-perl:
-    ports:
-      - "60443:443"
   trafficportal:
     ports:
       - "443:443"
@@ -46,23 +43,31 @@ services:
       - "3080:80"
       - "3443:443"
       - "3333:3333"
+      - "2222:3443"
   influxdb:
     ports:
       - "8086:8086"
   trafficvault:
     ports:
       - "8087:8087"
+      - "8088:8088"
       - "8098:8098"
   edge:
     ports:
       - "9000:80"
-  mid:
+  mid-01:
     ports:
       - "9100:80"
-  origin:
+  mid-02:
     ports:
       - "9200:80"
+  origin:
+    ports:
+      - "9300:80"
   dns:
     ports:
       - "9353:53/tcp"
       - "9353:53/udp"
+  smtp:
+    ports:
+      - "4443:443"

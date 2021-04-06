@@ -76,7 +76,7 @@ var ChartHttpStatusController = function(deliveryService, $scope, $state, $timeo
 			series = result.series;
 
 		if (angular.isDefined(series)) {
-			_.each(series.values, function(seriesItem) {
+			series.values.forEach(function(seriesItem) {
 				if (moment(seriesItem[0]).isSame(start) || moment(seriesItem[0]).isAfter(start)) {
 					if (_.isNumber(seriesItem[1])) {
 						normalizedChartData.push([ moment(seriesItem[0]).valueOf(), seriesItem[1] ]);
@@ -94,7 +94,8 @@ var ChartHttpStatusController = function(deliveryService, $scope, $state, $timeo
 			xaxis: {
 				mode: "time",
 				timezone: "browser",
-				twelveHourClock: true
+				twelveHourClock: true,
+				timeBase: "milliseconds"
 			},
 			yaxes: [
 				{
@@ -160,7 +161,11 @@ var ChartHttpStatusController = function(deliveryService, $scope, $state, $timeo
 	};
 
 	var registerResizeListener = function() {
-		$(window).resize(plotChart);
+		$(window).bind("resize", plotChart);
+	};
+
+	var unregisterResizeListener = function() {
+		$(window).unbind("resize", plotChart);
 	};
 
 	var plotChart = function() {
@@ -180,6 +185,7 @@ var ChartHttpStatusController = function(deliveryService, $scope, $state, $timeo
 
 	$scope.$on("$destroy", function() {
 		killIntervals();
+		unregisterResizeListener();
 	});
 
 	angular.element(document).ready(function () {

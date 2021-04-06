@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -30,6 +30,14 @@ var FormEditUserController = function(user, $scope, $controller, $uibModal, $anc
             });
     };
 
+    var sendRegistration = function(user) {
+        userService.registerUser(user).
+            then(function() {
+                $scope.userEmail = angular.copy(user.email);
+                $anchorScroll(); // scrolls window to top
+            });
+    };
+
     $scope.userName = angular.copy(user.username);
 
     $scope.settings = {
@@ -37,8 +45,12 @@ var FormEditUserController = function(user, $scope, $controller, $uibModal, $anc
         saveLabel: 'Update'
     };
 
-    $scope.confirmSave = function(user, usernameField) {
+    $scope.confirmSave = function(user) {
         saveUser(user);
+    };
+
+    $scope.resendRegistration = function(user) {
+        sendRegistration(user);
     };
 
 };

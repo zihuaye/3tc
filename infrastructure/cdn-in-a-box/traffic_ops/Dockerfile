@@ -17,83 +17,110 @@
 
 ############################################################
 # Dockerfile to build Traffic Ops container images
-# Based on CentOS 7.2
+# Based on CentOS 8
 ############################################################
 
+ARG RHEL_VERSION=8
+FROM centos:${RHEL_VERSION}
+ARG RHEL_VERSION=8
+# Makes RHEL_VERSION available in later layers without needing to specify it again
+ENV RHEL_VERSION=$RHEL_VERSION
 
-FROM centos:7
+RUN if [[ "${RHEL_VERSION%%.*}" -eq 7 ]]; then \
+		yum -y install dnf || exit 1; \
+	fi
 
-RUN rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7 && \
-    rpm --import http://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-7 && \
-    rpm --import https://download.postgresql.org/pub/repos/yum/RPM-GPG-KEY-PGDG && \
-    yum -y update ca-certificates && \
-    yum-config-manager --add-repo https://download.postgresql.org/pub/repos/yum/9.6/redhat/rhel-7-x86_64 && \
-    yum install -y \
-        epel-release \
-        pgdg-redhat-latest && \
-    yum -y clean all
+RUN set -o nounset -o errexit && \
+	mkdir -p /etc/cron.d; \
+	if [[ "${RHEL_VERSION%%.*}" -eq 7 ]]; then \
+		use_repo=''; \
+		enable_repo=''; \
+		llvm_version=5.0; \
+		# needed for llvm-toolset-7-clang, which is needed for postgresql13-devel-13.2-1PGDG, required by TO rpm
+		dnf -y install gcc centos-release-scl-rh; \
+	else \
+		use_repo='--repo=pgdg13'; \
+		enable_repo='--enablerepo=powertools'; \
+		llvm_version=''; \
+	fi; \
+	dnf -y install "https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION%%.*}-x86_64/pgdg-redhat-repo-latest.noarch.rpm"; \
+	dnf -y install epel-release; \
+	dnf -y install \
+		# libicu is required by postgresql13
+		libicu \
+		# libicu-devel, clang-devel, and llvm-devel are required by postgresql13-devel
+		libicu-devel clang-devel llvm${llvm_version}-devel; \
+	dnf -y $use_repo -- install postgresql13 postgresql13-devel; \
+	dnf -y $enable_repo install \
+		bind-utils           \
+		gettext              \
+		git                  \
+		# ip commands is used in set-to-ips-from-dns.sh
+		iproute              \
+		isomd5sum            \
+		jq                   \
+		net-tools            \
+		nmap-ncat            \
+		openssl              \
+		# rsync is used to copy certs in "Shared SSL certificate generation" step
+		rsync                \
 
-RUN yum install -y \
-        cpanminus \
-        bind-utils \
-        net-tools \
-        gettext \
-        golang \
-        nmap-ncat \
-        openssl \
-        perl \
-        perl-Crypt-ScryptKDF \
-        perl-Test-CPAN-Meta \
-        perl-JSON-PP \
-        git \
-        iproute \
-        jq && \
-    yum -y clean all
-
-RUN yum install -y perl-DBIx-Connector
-
-# Override TRAFFIC_OPS_RPM arg to use a different one using --build-arg TRAFFIC_OPS_RPM=...  Can be local file or http://...
-ARG TRAFFIC_OPS_RPM=traffic_ops/traffic_ops.rpm
-ADD $TRAFFIC_OPS_RPM /
-RUN yum install -y \
-        /$(basename $TRAFFIC_OPS_RPM) \
-        rm /$(basename $TRAFFIC_OPS_RPM) && \
-    yum clean all
-
-# copy any dir structure in overrides to TO -- allows modification of the install and shortcut to get perl modules/goose installed
-WORKDIR /opt/traffic_ops/app
-COPY traffic_ops/overrides/ /opt/traffic_ops/.
-RUN cpanm -l ./local Carton
-
-# run carton whether or not local dir was installed
-RUN POSTGRES_HOME=/usr/pgsql-9.6 PERL5LIB=$(pwd)/local/lib/perl5 ./local/bin/carton && \
-     rm -rf $HOME/.cpan* /tmp/Dockerfile /tmp/local.tar.gz
-
-RUN /opt/traffic_ops/install/bin/install_goose.sh
-
-RUN export PERL5LIB=/opt/traffic_ops/app/local/lib/perl5/:/opt/traffic_ops/install/lib/ \
-	&& export TERM=xterm \
-	&& export USER=root \
-	&& /opt/traffic_ops/install/bin/download_web_deps -i || \
-	true # keep a failure here from failing all..
-
-ADD http://geolite.maxmind.com/download/geoip/database/GeoLite2-City.tar.gz /
+		# Traffic Ops dependencies (Not all needed for CDN in a Box, but all
+		# required by the Traffic Ops RPM)
+		cpanminus            \
+		expat-devel          \
+		gcc-c++              \
+		golang               \
+		libcap               \
+		libcurl-devel        \
+		libidn-devel         \
+		libpcap-devel        \
+		mkisofs              \
+		openssl-devel        \
+		perl-core            \
+		perl-Crypt-ScryptKDF \
+		perl-DBD-Pg          \
+		perl-DBI             \
+		perl-Digest-SHA1     \
+		perl-JSON            \
+		perl-libwww-perl     \
+		perl-TermReadKey     \
+		perl-Test-CPAN-Meta  \
+		perl-WWW-Curl;       \
+	dnf clean all
 
 EXPOSE 443
+
+ADD traffic_router/core/src/test/resources/geo/GeoLite2-City.mmdb.gz /opt/traffic_ops/app/public/
+
 WORKDIR /opt/traffic_ops/app
-ENV MOJO_MODE production
+ADD traffic_ops/install/bin/install_goose.sh ./
+RUN ./install_goose.sh && rm ./install_goose.sh
 
-ADD enroller/server_template.json \
-    traffic_ops/run.sh \
-    traffic_ops/config.sh \
-    traffic_ops/adduser.pl \
-    traffic_ops/to-access.sh \
-    traffic_ops/generate-certs.sh \
-    traffic_ops/trafficops-init.sh \
-    variables.env \
-    /
+ADD infrastructure/cdn-in-a-box/traffic_ops_data /traffic_ops_data
 
-ADD traffic_ops_data /traffic_ops_data
+# Override TRAFFIC_OPS_RPM arg to use a different one using --build-arg TRAFFIC_OPS_RPM=...  Can be local file or http://...
+#
+ARG TRAFFIC_OPS_RPM=infrastructure/cdn-in-a-box/traffic_ops/traffic_ops.rpm
 
-RUN chown -R trafops:trafops /opt/traffic_ops
-CMD /run.sh
+COPY $TRAFFIC_OPS_RPM /traffic_ops.rpm
+RUN rpm -Uvh /traffic_ops.rpm && \
+	rm /traffic_ops.rpm
+
+COPY infrastructure/cdn-in-a-box/enroller/server_template.json \
+	infrastructure/cdn-in-a-box/traffic_ops/config.sh \
+	infrastructure/cdn-in-a-box/traffic_ops/run-go.sh \
+	infrastructure/cdn-in-a-box/traffic_ops/to-access.sh \
+	infrastructure/cdn-in-a-box/dns/insert-self-into-dns.sh \
+	infrastructure/cdn-in-a-box/dns/set-dns.sh \
+	infrastructure/cdn-in-a-box/traffic_ops/set-to-ips-from-dns.sh \
+	infrastructure/cdn-in-a-box/traffic_ops/generate-certs.sh \
+	infrastructure/cdn-in-a-box/traffic_ops/adduser.pl \
+	infrastructure/cdn-in-a-box/traffic_ops/trafficops-init.sh \
+	infrastructure/cdn-in-a-box/variables.env \
+	/
+
+EXPOSE 443
+CMD /run-go.sh
+HEALTHCHECK --interval=10s --timeout=1s \
+	CMD bash -c 'source /to-access.sh && [[ "$(curl -sk "https://${TO_FQDN}/api/${TO_API_VERSION}/ping" | jq .ping)" == \"pong\" ]]'

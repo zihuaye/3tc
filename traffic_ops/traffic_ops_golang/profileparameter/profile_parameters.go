@@ -23,6 +23,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/lib/go-tc/tovalidate"
@@ -44,19 +45,21 @@ type TOProfileParameter struct {
 	tc.ProfileParameterNullable
 }
 
-func (v *TOProfileParameter) NewReadObj() interface{} { return &tc.ProfileParametersNullable{} }
-func (v *TOProfileParameter) SelectQuery() string     { return selectQuery() }
+// AllowMultipleCreates indicates whether an array can be POSTed using the shared Create handler
+func (v *TOProfileParameter) AllowMultipleCreates() bool { return true }
+func (v *TOProfileParameter) NewReadObj() interface{}    { return &tc.ProfileParametersNullable{} }
+func (v *TOProfileParameter) SelectQuery() string        { return selectQuery() }
 func (v *TOProfileParameter) ParamColumns() map[string]dbhelpers.WhereColumnInfo {
 	return map[string]dbhelpers.WhereColumnInfo{
-		"profileId":   dbhelpers.WhereColumnInfo{"pp.profile", nil},
-		"parameterId": dbhelpers.WhereColumnInfo{"pp.parameter", nil},
-		"lastUpdated": dbhelpers.WhereColumnInfo{"pp.last_updated", nil},
+		"profileId":   dbhelpers.WhereColumnInfo{Column: "pp.profile"},
+		"parameterId": dbhelpers.WhereColumnInfo{Column: "pp.parameter"},
+		"lastUpdated": dbhelpers.WhereColumnInfo{Column: "pp.last_updated"},
 	}
 }
 func (v *TOProfileParameter) DeleteQuery() string { return deleteQuery() }
 
 func (pp TOProfileParameter) GetKeyFieldsInfo() []api.KeyFieldInfo {
-	return []api.KeyFieldInfo{{ProfileIDQueryParam, api.GetIntKey}, {ParameterIDQueryParam, api.GetIntKey}}
+	return []api.KeyFieldInfo{{Field: ProfileIDQueryParam, Func: api.GetIntKey}, {Field: ParameterIDQueryParam, Func: api.GetIntKey}}
 }
 
 //Implementation of the Identifier, Validator interface functions
@@ -99,8 +102,8 @@ func (pp *TOProfileParameter) SetKeys(keys map[string]interface{}) {
 func (pp *TOProfileParameter) Validate() error {
 
 	errs := validation.Errors{
-		"profile":   validation.Validate(pp.ProfileID, validation.Required),
-		"parameter": validation.Validate(pp.ParameterID, validation.Required),
+		"profileId":   validation.Validate(pp.ProfileID, validation.Required),
+		"parameterId": validation.Validate(pp.ParameterID, validation.Required),
 	}
 
 	return util.JoinErrs(tovalidate.ToErrors(errs))
@@ -149,11 +152,22 @@ parameter) VALUES (
 :parameter_id) RETURNING profile, parameter, last_updated`
 }
 
-func (pp *TOProfileParameter) Update() (error, error, int) {
+func (pp *TOProfileParameter) Update(h http.Header) (error, error, int) {
 	return nil, nil, http.StatusNotImplemented
 }
-func (pp *TOProfileParameter) Read() ([]interface{}, error, error, int) { return api.GenericRead(pp) }
-func (pp *TOProfileParameter) Delete() (error, error, int)              { return api.GenericDelete(pp) }
+func (pp *TOProfileParameter) Read(h http.Header, useIMS bool) ([]interface{}, error, error, int, *time.Time) {
+	api.DefaultSort(pp.APIInfo(), "parameter")
+	return api.GenericRead(h, pp, useIMS)
+}
+func (pp *TOProfileParameter) Delete() (error, error, int) { return api.GenericDelete(pp) }
+func (v *TOProfileParameter) SelectMaxLastUpdatedQuery(where, orderBy, pagination, tableName string) string {
+	return `SELECT max(t) from (
+		SELECT max(pp.last_updated) as t FROM profile_parameter pp
+JOIN profile prof ON prof.id = pp.profile
+JOIN parameter param ON param.id = pp.parameter ` + where + orderBy + pagination +
+		` UNION ALL
+	select max(last_updated) as t from last_deleted l where l.table_name='profile_parameter') as res`
+}
 
 func selectQuery() string {
 
@@ -164,17 +178,6 @@ prof.name profile
 FROM profile_parameter pp
 JOIN profile prof ON prof.id = pp.profile
 JOIN parameter param ON param.id = pp.parameter`
-	return query
-}
-
-func updateQuery() string {
-	query := `UPDATE
-profile_parameter SET
-profile=:profile_id,
-parameter=:parameter_id
-WHERE profile=:profile_id AND
-      parameter = :parameter_id
-      RETURNING last_updated`
 	return query
 }
 

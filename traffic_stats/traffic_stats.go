@@ -36,7 +36,9 @@ import (
 	"time"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
-	"github.com/apache/trafficcontrol/traffic_ops/client"
+	"github.com/apache/trafficcontrol/lib/go-util"
+
+	client "github.com/apache/trafficcontrol/traffic_ops/v2-client"
 	log "github.com/cihub/seelog"
 	influx "github.com/influxdata/influxdb/client/v2"
 )
@@ -313,12 +315,12 @@ func calcDailyMaxGbps(client influx.Client, bp influx.BatchPoints, startTime tim
 					statTime, _ := time.Parse(time.RFC3339, t)
 					log.Infof("max gbps for cdn %v = %v", cdn, value)
 					var statsSummary tc.StatsSummary
-					statsSummary.CDNName = cdn
-					statsSummary.DeliveryService = "all"
-					statsSummary.StatName = "daily_maxgbps"
-					statsSummary.StatValue = strconv.FormatFloat(value, 'f', 2, 64)
-					statsSummary.SummaryTime = time.Now().Format(time.RFC3339)
-					statsSummary.StatDate = statTime.Format("2006-01-02")
+					statsSummary.CDNName = util.StrPtr(cdn)
+					statsSummary.DeliveryService = util.StrPtr("all")
+					statsSummary.StatName = util.StrPtr("daily_maxgbps")
+					statsSummary.StatValue = util.FloatPtr(value)
+					statsSummary.SummaryTime = time.Now()
+					statsSummary.StatDate = &statTime
 					go writeSummaryStats(config, statsSummary)
 
 					//write to influxdb
@@ -373,12 +375,12 @@ func calcDailyBytesServed(client influx.Client, bp influx.BatchPoints, startTime
 			log.Infof("TBytes served for cdn %v = %v", cdn, bytesServedTB)
 			//write to Traffic Ops
 			var statsSummary tc.StatsSummary
-			statsSummary.CDNName = cdn
-			statsSummary.DeliveryService = "all"
-			statsSummary.StatName = "daily_bytesserved"
-			statsSummary.StatValue = strconv.FormatFloat(bytesServedTB, 'f', 2, 64)
-			statsSummary.SummaryTime = time.Now().Format(time.RFC3339)
-			statsSummary.StatDate = startTime.Format("2006-01-02")
+			statsSummary.CDNName = util.StrPtr(cdn)
+			statsSummary.DeliveryService = util.StrPtr("all")
+			statsSummary.StatName = util.StrPtr("daily_bytesserved")
+			statsSummary.StatValue = util.FloatPtr(bytesServedTB)
+			statsSummary.SummaryTime = time.Now()
+			statsSummary.StatDate = &startTime
 			go writeSummaryStats(config, statsSummary)
 			//write to Influxdb
 			tags := map[string]string{"cdn": cdn, "deliveryservice": "all"}
@@ -422,7 +424,7 @@ func writeSummaryStats(config StartupConfig, statsSummary tc.StatsSummary) {
 		log.Error(newErr)
 		return
 	}
-	err = to.AddSummaryStats(statsSummary)
+	_, _, err = to.CreateSummaryStats(statsSummary)
 	if err != nil {
 		log.Error(err)
 	}
@@ -440,7 +442,7 @@ func getToData(config StartupConfig, init bool, configChan chan RunningConfig) {
 		return
 	}
 
-	servers, err := to.Servers()
+	servers, _, err := to.GetServers()
 	if err != nil {
 		msg := fmt.Sprintf("Error getting server list from %v: %v ", config.ToURL, err)
 		if init {
@@ -457,7 +459,7 @@ func getToData(config StartupConfig, init bool, configChan chan RunningConfig) {
 
 	cacheStatPath := "/publish/CacheStats?hc=1&wildcard=1&stats="
 	dsStatPath := "/publish/DsStats?hc=1&wildcard=1&stats="
-	parameters, err := to.Parameters("TRAFFIC_STATS")
+	parameters, _, err := to.GetParametersByProfileName("TRAFFIC_STATS")
 	if err != nil {
 		msg := fmt.Sprintf("Error getting parameter list from %v: %v", config.ToURL, err)
 		if init {
@@ -502,16 +504,13 @@ func getToData(config StartupConfig, init bool, configChan chan RunningConfig) {
 		}
 	}
 
-	lastSummaryTimeStr, err := to.SummaryStatsLastUpdated("daily_maxgbps")
+	lastSummaryTimeResponse, _, err := to.GetSummaryStatsLastUpdated(util.StrPtr("daily_maxgbps"))
 	if err != nil {
 		errHndlr(err, ERROR)
+	} else if lastSummaryTimeResponse.Response.SummaryTime == nil {
+		errHndlr(errors.New("unable to get last updated stats summary timestamp: daily_maxgbps stats summary not reported yet"), WARN)
 	} else {
-		lastSummaryTime, err := time.Parse("2006-01-02 15:04:05-07", lastSummaryTimeStr)
-		if err != nil {
-			log.Error("Error parsing lastSummaryTime: " + err.Error())
-		} else {
-			runningConfig.LastSummaryTime = lastSummaryTime
-		}
+		runningConfig.LastSummaryTime = *lastSummaryTimeResponse.Response.SummaryTime
 	}
 
 	configChan <- runningConfig
@@ -640,18 +639,7 @@ func calcDsValues(rascalData []byte, cdnName string, sampleTime int64, config St
 }
 
 func calcCacheValues(trafmonData []byte, cdnName string, sampleTime int64, cacheMap map[string]tc.Server, config StartupConfig) error {
-
-	type CacheStatsJSON struct {
-		Pp     string `json:"pp"`
-		Date   string `json:"date"`
-		Caches map[string]map[string][]struct {
-			Index uint64 `json:"index"`
-			Time  int    `json:"time"`
-			Value string `json:"value"`
-			Span  uint64 `json:"span"`
-		} `json:"caches"`
-	}
-	var jData CacheStatsJSON
+	var jData tc.LegacyStats
 	err := json.Unmarshal(trafmonData, &jData)
 	if err != nil {
 		return fmt.Errorf("could not unmarshall cache stats JSON - %v", err)
@@ -667,37 +655,27 @@ func calcCacheValues(trafmonData []byte, cdnName string, sampleTime int64, cache
 		errHndlr(err, ERROR)
 	}
 	for cacheName, cacheData := range jData.Caches {
-		cache := cacheMap[cacheName]
+		cache := cacheMap[string(cacheName)]
 
 		for statName, statData := range cacheData {
 			//Get the stat time and make sure it's greater than the time 24 hours ago.  If not, skip it so influxdb doesn't throw retention policy errors.
-			validTime := time.Now().AddDate(0, 0, -1).UnixNano() / 1000000
-			timeStamp := int64(statData[0].Time)
-			if timeStamp < validTime {
-				log.Info(fmt.Sprintf("Skipping %v %v: %v is greater than 24 hours old.", cacheName, statName, timeStamp))
+			validTime := time.Now().AddDate(0, 0, -1)
+			if statData[0].Time.Before(validTime) {
+				log.Info(fmt.Sprintf("Skipping %v %v: %v is greater than 24 hours old.", cacheName, statName, statData[0].Time))
 				continue
 			}
 			dataKey := statName
 			dataKey = strings.Replace(dataKey, ".bandwidth", ".kbps", 1)
 			dataKey = strings.Replace(dataKey, "-", "_", -1)
 
-			//Get the stat time and convert to epoch
-			statTime := strconv.Itoa(statData[0].Time)
-			msInt, err := strconv.ParseInt(statTime, 10, 64)
-			if err != nil {
-				errHndlr(err, ERROR)
-			}
-
-			newTime := time.Unix(0, msInt*int64(time.Millisecond))
 			//Get the stat value and convert to float
-			statValue := statData[0].Value
-			statFloatValue, err := strconv.ParseFloat(statValue, 64)
-			if err != nil {
+			statFloatValue, ok := statData[0].Val.(float64)
+			if !ok {
 				statFloatValue = 0.00
 			}
 			tags := map[string]string{
 				"cachegroup": cache.Cachegroup,
-				"hostname":   cacheName,
+				"hostname":   string(cacheName),
 				"cdn":        cdnName,
 				"type":       cache.Type,
 			}
@@ -709,7 +687,7 @@ func calcCacheValues(trafmonData []byte, cdnName string, sampleTime int64, cache
 				dataKey,
 				tags,
 				fields,
-				newTime,
+				statData[0].Time,
 			)
 			if err != nil {
 				errHndlr(err, ERROR)

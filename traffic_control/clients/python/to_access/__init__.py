@@ -53,7 +53,7 @@ Arguments and Flags
 .. option:: -a API_VERSION, --api-version API_VERSION
 
 	Specifies the version of the Traffic Ops API that will be used for the request. Has no effect if
-	:option:`--raw-path` is used. (Default: 1.3)
+	:option:`--raw-path` is used. (Default: 2.0)
 
 .. option:: -f, --full
 
@@ -77,6 +77,10 @@ Arguments and Flags
 
 	Request exactly :option:`PATH`; do not preface the request path with :file:`/api/{api_version}`.
 	This effectively means that :option:`--api-version` will have no effect. (Default: false)
+
+.. option:: -v, --version
+
+	Print version information and exit.
 
 .. option:: --request-headers
 
@@ -109,30 +113,10 @@ Arguments and Flags
 
 Environment Variables
 ---------------------
-If defined, :program:`toaccess` scripts will use these environment variables to define their
-connection to and authentication with the Traffic Ops server. Typically, setting these is easier
-than using the long options :option:`--to-url`, :option:`--to-user`, and :option:`--to-password` on
-every invocation.
-
-.. envvar:: TO_PASSWORD
-
-	Will be used to authenticate the user defined by either :option:`--to-user` or :envvar:`TO_USER`.
-
-.. envvar:: TO_URL
-
-	The :abbr:`FQDN (Fully Qualified Domain Name)` of the Traffic Ops server to which the script
-	will connect. The format of this should be :file:`[{http or https}://]{hostname}[:{port}]`. Note
-	that this may optionally start with ``http://`` or ``https://`` (case insensitive), but
-	typically this is unnecessary. Also notice that the port number may be specified, though again
-	this isn't usually required. All :program:`toaccess` scripts will assume that port 443 should be
-	used unless otherwise specified. They will further assume that the protocol is HTTPS unless
-	:envvar:`TO_URL` (or :option:`--to-url`) starts with ``http://``, in which case the default port
-	will also be set to 80 unless otherwise specified in the URL.
-
-.. envvar:: TO_USER
-
-	The name of the user as whom to connect to the Traffic Ops server. Overriden by
-	:option:`--to-user`.
+If defined, :program:`toaccess` scripts will use the :envvar:`TO_URL`, :envvar:`TO_USER`, and
+:envvar`TO_PASSWORD` environment variables to define their connection to and authentication with the
+Traffic Ops server. Typically, setting these is easier than using the long options :option:`--to-url`,
+:option:`--to-user`, and :option:`--to-password` on every invocation.
 
 Exit Codes
 ----------
@@ -174,18 +158,15 @@ Module Reference
 ================
 
 """
-from __future__ import print_function
-
 import json
 import logging
 import os
 import sys
 from urllib.parse import urlparse
 
-from future.utils import raise_from
-
 from trafficops.restapi import LoginError, OperationError, InvalidJSONError
 from trafficops.tosession import TOSession
+from trafficops.__version__ import __version__
 
 from requests.exceptions import RequestException
 
@@ -290,13 +271,17 @@ def parse_arguments(program):
 	                    help="Request exactly PATH; it won't be prefaced with '/api/{{api-version}}/")
 	parser.add_argument("-a", "--api-version",
 	                    type=float,
-	                    default=1.3,
+	                    default=3.0,
 	                    help="Specify the API version to request against")
 	parser.add_argument("-p", "--pretty",
 	                    action="store_true",
 	                    help=("Pretty-print payloads as JSON. "
 	                         "Note that this will make Content-Type headers \"wrong\", in general"))
-	parser.add_argument("PATH", help="The path to the resource being requested - omit '/api/1.x'")
+	parser.add_argument("-v", "--version",
+	                    action="version",
+	                    help="Print version information and exit",
+	                    version="%(prog)s v"+__version__)
+	parser.add_argument("PATH", help="The path to the resource being requested - omit '/api/2.x'")
 	parser.add_argument("DATA",
 	                    help=("An optional data string to pass with the request. If this is a "
 	                         "filename, the contents of the file will be sent instead."),
@@ -323,12 +308,12 @@ def parse_arguments(program):
 
 	to_host = to_host.hostname
 	if not to_host:
-		raise KeyError("Invalid URL/host for Traffic Ops: '%s'" % original_to_host)
+		raise KeyError(f"Invalid URL/host for Traffic Ops: '{original_to_host}'")
 
 	s = TOSession(to_host,
 	              host_port=to_port,
 	              ssl=useSSL,
-	              api_version=str(args.api_version),
+	              api_version=f"{args.api_version:.1f}",
 	              verify_cert=not args.insecure)
 
 	data = args.DATA
@@ -351,10 +336,18 @@ def parse_arguments(program):
 		raise KeyError("Traffic Ops password not set! Set the TO_PASSWORD environment variable or "\
 		               "use '--to-password'") from e
 
+	# TOSession objects return LoginError when certs are invalid, OperationError when
+	# login actually fails
 	try:
 		s.login(to_user, to_passwd)
-	except (OperationError, InvalidJSONError, LoginError) as e:
-		raise PermissionError from e
+	except LoginError as e:
+		raise PermissionError(
+			"certificate verification failed, the system may have a self-signed certificate - try using -k/--insecure"
+		) from e
+	except (OperationError, InvalidJSONError) as e:
+		raise PermissionError(e) from e
+	except RequestException as e:
+		raise ConnectionError("Traffic Ops host not found: Name or service not known") from e
 
 	return (s,
 	       args.PATH,
@@ -376,7 +369,7 @@ def request(method):
 	"""
 	try:
 		s, path, data, full, raw, pretty = parse_arguments("to%s" % method)
-	except (PermissionError, KeyError) as e:
+	except (PermissionError, KeyError, ConnectionError) as e:
 		print(e, file=sys.stderr)
 		return 1
 

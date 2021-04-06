@@ -30,10 +30,14 @@ var FormNewJobController = function(job, $scope, $controller, jobService, messag
 	};
 
 	$scope.save = function(job) {
+		// Sets the start time to "immediately" (5 minute leeway for latency)
+		job.startTime = (new Date((new Date()).getTime() + 5*60*1000)).toISOString();
 		jobService.createJob(job)
 			.then(
-				function() {
-					messageModel.setMessages([ { level: 'success', text: 'Invalidation Request Created' } ], true);
+				function(result) {
+					if (result.data !== undefined && result.data.alerts !== undefined) {
+						messageModel.setMessages(result.data.alerts, true);
+					}
 					locationUtils.navigateToPath('/jobs');
 				},
 				function(fault) {

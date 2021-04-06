@@ -29,19 +29,20 @@ import (
 	"github.com/apache/trafficcontrol/traffic_monitor/srvhttp"
 	"github.com/apache/trafficcontrol/traffic_monitor/threadsafe"
 	"github.com/apache/trafficcontrol/traffic_monitor/todata"
-
-	"github.com/json-iterator/go"
+	jsoniter "github.com/json-iterator/go"
 )
 
 // APIPeerStates contains the data to be returned for an API call to get the peer states of a Traffic Monitor. This contains common API data returned by most endpoints, and a map of peers, to caches' states.
 type APIPeerStates struct {
-	srvhttp.CommonAPIData
+	tc.CommonAPIData
 	Peers map[tc.TrafficMonitorName]map[tc.CacheName][]CacheState `json:"peers"`
 }
 
 // CacheState represents the available state of a cache.
 type CacheState struct {
-	Value bool `json:"value"`
+	Value         bool `json:"value"`
+	Ipv4Available bool `json:"ipv4Available"`
+	Ipv6Available bool `json:"ipv6Available"`
 }
 
 func srvPeerStates(params url.Values, errorCount threadsafe.Uint, path string, toData todata.TODataThreadsafe, peerStates peer.CRStatesPeersThreadsafe) ([]byte, int) {
@@ -76,7 +77,7 @@ func createAPIPeerStates(peerStates map[tc.TrafficMonitorName]tc.CRStates, peers
 			if !filter.UseCache(cache) {
 				continue
 			}
-			peerState[cache] = []CacheState{CacheState{Value: available.IsAvailable}}
+			peerState[cache] = []CacheState{CacheState{Value: available.IsAvailable, Ipv4Available: available.Ipv4Available, Ipv6Available: available.Ipv6Available}}
 		}
 		apiPeerStates.Peers[peer] = peerState
 	}

@@ -91,7 +91,7 @@ var WidgetCDNChartController = function(cdn, $scope, $timeout, $filter, $q, $int
 		var normalizedChartData = [];
 
 		if (angular.isDefined(series)) {
-			_.each(series.values, function(seriesItem) {
+			series.values.forEach(function(seriesItem) {
 				if (moment(seriesItem[0]).isSame(start) || moment(seriesItem[0]).isAfter(start)) {
 					if (_.isNumber(seriesItem[1])) {
 						normalizedChartData.push([ moment(seriesItem[0]).valueOf(), seriesItem[1] ]);
@@ -109,7 +109,8 @@ var WidgetCDNChartController = function(cdn, $scope, $timeout, $filter, $q, $int
 			xaxis: {
 				mode: "time",
 				timezone: "utc",
-				twelveHourClock: false
+				twelveHourClock: false,
+				timeBase: "milliseconds"
 			},
 			yaxes: [
 				{
@@ -140,7 +141,7 @@ var WidgetCDNChartController = function(cdn, $scope, $timeout, $filter, $q, $int
 				show: true,
 				content: function(label, xval, yval, flotItem){
 					var tooltipString = dateUtils.dateFormat(xval, "UTC: ddd mmm d yyyy H:MM:ss tt (Z)") + '<br>';
-					tooltipString += '<span>' + label + ': ' + $filter('number')(yval, 2) + '</span><br>'
+					tooltipString += '<span>' + label + ': ' + $filter('number')(yval, 2) + (flotItem.series.label === "Bandwidth" ? ' Gbps' : '') + '</span><br>';
 					return tooltipString;
 				}
 			}
@@ -168,7 +169,11 @@ var WidgetCDNChartController = function(cdn, $scope, $timeout, $filter, $q, $int
 	};
 
 	var registerResizeListener = function() {
-		$(window).resize(plotChart);
+		$(window).bind("resize", plotChart);
+	};
+
+	var unregisterResizeListener = function() {
+		$(window).unbind("resize", plotChart);
 	};
 
 	var plotChart = function() {
@@ -187,6 +192,7 @@ var WidgetCDNChartController = function(cdn, $scope, $timeout, $filter, $q, $int
 
 	$scope.$on("$destroy", function() {
 		killIntervals();
+		unregisterResizeListener();
 	});
 
 	angular.element(document).ready(function () {

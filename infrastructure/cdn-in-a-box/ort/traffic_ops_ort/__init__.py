@@ -24,6 +24,8 @@ files and start, stop, and restart HTTP cache servers etc.
 
 .. program:: traffic_ops_ort
 
+.. seealso:: Contributions to :program:`traffic_ops_ort` should follow the :ref:`ATC Python contribution guidelines <py-contributing>`
+
 This package provides an executable script named :program:`traffic_ops_ort`
 
 Usage
@@ -42,7 +44,7 @@ The second method - called the "new call signature" - aims to reduce the complex
 :term:`ORT` command line. Rather than require a URL and "login string" for connecting and
 authenticating with the Traffic Ops server, these pieces of information are optional and may be
 provided by the :option:`--to_url`, :option:`-u`/:option:`--to_user`, and
-:option:`-p`/:option:`--password` options, respectively. If they are NOT provided, then their values
+:option:`-p`/:option:`--to_password` options, respectively. If they are NOT provided, then their values
 will be obtained from the :envvar:`TO_URL`, :envvar:`TO_USER`, and :envvar:`TO_PASSWORD` environment
 variables, respectively. Note that :program:`traffic_ops_ort` cannot be run using the new call
 signature without providing a definition for each of these, either on the command line or in the
@@ -67,6 +69,10 @@ Arguments and Flags
 .. option:: -v, --version
 
 	Print version information and exit
+
+.. option:: -t, --timeout
+
+	Sets the timeout in milliseconds for connections to Traffic Ops.
 
 .. option:: -k, --insecure
 
@@ -205,41 +211,114 @@ Arguments and Flags
 	that :program:`traffic_ops_ort` cannot be run using the new call signature unless this value is
 	defined, either on the command line or in the execution environment.
 
+.. option:: --hostname HOSTNAME
+
+	Causes ORT to request configuration information for the server named ``HOSTNAME`` instead of
+	detecting the server's actual hostname. This is primarily useful for testing purposes.
+
 Environment Variables
 ---------------------
-.. envvar:: TO_URL
+:program:`traffic_ops_ort` supports authentication with a Traffic Ops instance using the environment
+variables :envvar:`TO_URL`, :envvar:`TO_USER` and :envvar:`TO_PASSWORD`.
 
-	Should be set to the URL of a Traffic Ops server. This doesn't need to be a full URL, an
-	:abbr:`FQDN (Fully Qualified Domain Name)` will do just as well. It may also omit the port
-	number on which the Traffic Ops server listens for incoming connections - port 443 will be
-	assumed unless :envvar:`TO_URL` is prefixed by ``http://`` (case-insensitive), in which case
-	port 80 will be assumed. The value of this environment variable will only be considered if
-	:program:`traffic_ops_ort` was invoked using the new call signature, which allows it to be
-	overridden on the command line by the value of :option:`--to_url`.
+.. _ort-special-strings:
 
-.. envvar:: TO_USER
+Strings with Special Meaning to ORT
+===================================
+When processing configuration files, if :program:`traffic_ops_ort` encounters any of the strings in
+the :ref:`Replacement Strings <ort-replacement-strings>` table it will perform the indicated
+replacement. This means that these strings can be used to create templates in :term:`Profile`
+:term:`Parameters` and certain :term:`Delivery Service` configuration fields.
 
-	The username to use when authenticating to the Traffic Ops server. The value of this environment
-	variable will only be considered if :program:`traffic_ops_ort` was invoked using the new call
-	signature, which allows it to be overridden on the command line by the value of
-	:option:`-u`/:option:`--to_user`.
+.. _ort-replacement-strings:
 
-.. envvar:: TO_PASSWORD
+.. table:: Replacement Strings
 
-	The password to use when authenticating to the Traffic Ops server. The value of this environment
-	variable will only be considered if :program:`traffic_ops_ort` was invoked using the new call
-	signature, which allows it to be overridden on the command line by the value of
-	:option:`-p`/:option:`--to_password`.
+	+-------------------------+--------------------------------------------------------------------+
+	| String                  | Replaced With                                                      |
+	+=========================+====================================================================+
+	| ``__CACHE_IPV4__``      | The IPv4 address of the :term:`cache server` on which              |
+	|                         | :program:`traffic_ops_ort` is running.                             |
+	+-------------------------+--------------------------------------------------------------------+
+	| ``__FULL_HOSTNAME__``   | The full hostname (i.e. including the full domain to which it      |
+	|                         | belongs) of the :term:`cache server` on which                      |
+	|                         | :program:`traffic_ops_ort` is running.                             |
+	+-------------------------+--------------------------------------------------------------------+
+	| ``__HOSTNAME__``        | The (short) hostname of the :term:`cache server` on which          |
+	|                         | :program:`traffic_ops_ort` is running.                             |
+	+-------------------------+--------------------------------------------------------------------+
+	| ``__RETURN__``          | A newline character (``\\n``).                                      |
+	+-------------------------+--------------------------------------------------------------------+
+	| ``__SERVER_TCP_PORT__`` | If the :term:`cache server` on which :program:`traffic_ops_ort` is |
+	|                         | being run has a TCP port configured to something besides ``80``,   |
+	|                         | this will be replaced with that TCP port value. *If it* **is**     |
+	|                         | *set to ``80``, this string will simply be removed,* **NOT**       |
+	|                         | *replaced with* **ANYTHING**.                                      |
+	+-------------------------+--------------------------------------------------------------------+
+	| ``##OVERRIDE##``        | This string is only valid in the content of files named            |
+	|                         | "remap.config". It is further described in `Remap Override`_       |
+	+-------------------------+--------------------------------------------------------------------+
+
+.. deprecated:: ATCv4.0
+	The use of ``__RETURN__`` in lieu of a true newline character is (finally) no longer necessary,
+	and the ability to do so will be removed in the future.
+
+.. note:: There is currently no way to indicate that a server's IPv6 address should be inserted -
+	only IPv4 is supported.
+
+.. _ort-remap-override:
+
+Remap Override
+--------------
+.. warning:: The ANY_MAP ``##OVERRIDE##`` special string is a temporary solution and will be
+	deprecated once Delivery Service Versioning is implemented. For this reason it is suggested that
+	it not be used unless absolutely necessary.
+
+The ``##OVERRIDE##`` template string allows the :term:`Delivery Service` :ref:`ds-raw-remap` field
+to override to fully override the :term:`Delivery Service`'s line in the
+`remap.config ATS configuration file <https://docs.trafficserver.apache.org/en/7.1.x/admin-guide/files/remap.config.en.html>`_,
+generated by Traffic Ops. The end result is the original, generated line commented out, prepended
+with ``##OVERRIDDEN##`` and the ``##OVERRIDE##`` rule is activated in its place. This behavior is
+used to incrementally deploy plugins used in this configuration file. Normally, this entails cloning
+the :term:`Delivery Service` that will have the plugin, ensuring it is assigned to a subset of the
+:term:`cache servers` that serve the :term:`Delivery Service` content, then using this
+``##OVERRIDE##`` rule to create a ``remap.config`` rule that will use the plugin, overriding the
+normal rule. Simply grow the subset over time at the desired rate to slowly deploy the plugin. When
+it encompasses all :term:`cache servers` that serve the original :term:`Delivery Service`'s content,
+the "override :term:`Delivery Service`" can be deleted and the original can use a
+non-``##OVERRIDE##`` :ref:`ds-raw-remap` to add the plugin.
+
+.. code-block:: text
+	:caption: Example of Remap Override
+
+	# This is the original line as generated by Traffic Ops
+	map http://from.example.com/ http://to.example.com/
+
+	# This is the raw remap text as configured on the delivery service
+	##OVERRIDE## map http://from.example.com/ http://to.example.com/ some_plugin.so
+
+	# The resulting content is what actually winds up in the remap.config file:
+	##OVERRIDE##
+	map http://from.example.com/ http://to.example.com/ some_plugin.so
+	##OVERRIDDEN## map http://from.example.com/ http://to.example.com/
+
+.. warning:: The "from" URL must exactly match for this to properly work (e.g. including trailing
+	URL '/'), otherwise :abbr:`ATS (Apache Traffic Server)` may fail to initialize or reload while
+	processing :file:`remap.config`.
+
+.. tip:: To assist in troubleshooting, it is strongly recommended that any ``##OVERRIDE##`` rules in
+	use should be documented on the original :term:`Delivery Service`.
 
 Module Contents
 ===============
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__  = "Brennan Fieck"
 
 import argparse
 import datetime
+from distutils.spawn import find_executable
 import logging
 import os
 import random
@@ -362,6 +441,9 @@ def main() -> int:
 	                    help="wait a random number between 0 and <dispersion> before starting.",
 	                    type=int,
 	                    default=300)
+	parser.add_argument("--hostname",
+	                    help="Pretend to be a server with the provided hostname instead of using "
+	                         "this server's actual hostname in communications with Traffic Ops")
 	parser.add_argument("--login_dispersion",
 	                    help="wait a random number between 0 and <login_dispersion> before login.",
 	                    type=int,
@@ -386,6 +468,18 @@ def main() -> int:
 	                    help="Skip verification of SSL certificates for Traffic Ops connections. "\
 	                         "DON'T use this in production!",
 	                    action="store_true")
+	parser.add_argument("-t", "--timeout",
+	                    help="Sets the timeout in milliseconds for requests made to Traffic Ops.",
+	                    type=int,
+	                    default=None)
+	parser.add_argument("--via-string-release",
+			    		help="set the ATS via string to the package release instead of version",
+			    		type=int,
+			    		default=0)
+	parser.add_argument("--disable-parent-config-comments",
+						help="Do not insert comments in parent.config files",
+						type=int,
+						default=0)
 	parser.add_argument("-v", "--version",
 	                    action="version",
 	                    version="%(prog)s v"+__version__,
@@ -432,5 +526,8 @@ def main() -> int:
 			print("(Hint: use -h/--help for usage)", file=sys.stderr)
 			return 1
 
+	if not find_executable("atstccfg"):
+		print("Could not find atstccfg executable - this is required to run ORT!", file=sys.stderr)
+		return 1
 
 	return doMain(args)

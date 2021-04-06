@@ -62,9 +62,10 @@ var ChartBPSController = function(deliveryService, $scope, $state, $timeout, $fi
 		var normalizedChartData = [];
 
 		if (angular.isDefined(series)) {
-			_.each(series.values, function(seriesItem) {
+			series.values.forEach(function(seriesItem) {
 				if (moment(seriesItem[0]).isSame(start) || moment(seriesItem[0]).isAfter(start)) {
-					normalizedChartData.push([ moment(seriesItem[0]).valueOf(), numberUtils.convertTo(seriesItem[1], $scope.unitSize) ]); // converts data to appropriate unit
+					normalizedChartData.push([ moment(seriesItem[0]).valueOf(), 
+						numberUtils.convertTo(seriesItem[1], $scope.unitSize) ]); // converts data to appropriate unit
 				}
 			});
 		}
@@ -78,7 +79,8 @@ var ChartBPSController = function(deliveryService, $scope, $state, $timeout, $fi
 			xaxis: {
 				mode: "time",
 				timezone: "utc",
-				twelveHourClock: false
+				twelveHourClock: false,
+				timeBase: "milliseconds"
 			},
 			yaxes: [
 				{
@@ -128,7 +130,11 @@ var ChartBPSController = function(deliveryService, $scope, $state, $timeout, $fi
 	};
 
 	var registerResizeListener = function() {
-		$(window).resize(plotChart);
+		$(window).bind("resize", plotChart);
+	};
+
+	var unregisterResizeListener = function() {
+		$(window).unbind("resize", plotChart);
 	};
 
 	var plotChart = function() {
@@ -147,6 +153,7 @@ var ChartBPSController = function(deliveryService, $scope, $state, $timeout, $fi
 
 	$scope.$on("$destroy", function() {
 		killIntervals();
+		unregisterResizeListener();
 	});
 
 	angular.element(document).ready(function () {

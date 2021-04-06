@@ -33,7 +33,10 @@ try {
     config = require('/etc/traffic_portal/conf/config');
 }
 catch(e) {
-    config = require('./conf/config');
+    let file = "./conf/config";
+    if((process.env.NODE_ENV || "prod") === "dev")
+        file = './conf/configDev';
+    config = require(file);
 }
 
 var logStream = fs.createWriteStream(config.log.stream, { flags: 'a' }),
@@ -47,7 +50,7 @@ var app = express();
 app.use(function(req, res, next) {
     var err = null;
     try {
-        decodeURIComponent(req.path)
+        decodeURIComponent(req.path);
     }
     catch(e) {
         err = e;
@@ -73,7 +76,8 @@ app.all ("/*", function (req, res, next) {
 
 app.use(modRewrite([
     '^/api/(.*?)\\?(.*)$ ' + config.api.base_url + '$1?$2 [P]',
-    '^/api/(.*)$ ' + config.api.base_url + '$1 [P]'
+    '^/api/(.*)$ ' + config.api.base_url + '$1 [P]',
+    '^/sso\\?(.*)$ ' + '#!/sso?$1 [R]'
 ]));
 
 app.use(express.static(config.files.static));
@@ -108,7 +112,7 @@ if (useSSL) {
     // from the list of supported protocols that SSLv23_method supports.
     //
     var sslOptions = {};
-    sslOptions['secureOptions'] = constants.SSL_OP_NO_SSLv3;
+    sslOptions['secureOptions'] = constants.SSL_OP_NO_TLSv1;
 
     sslOptions['key'] = fs.readFileSync(config.ssl.key);
     sslOptions['cert'] = fs.readFileSync(config.ssl.cert);

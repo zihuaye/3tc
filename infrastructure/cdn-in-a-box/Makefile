@@ -18,79 +18,175 @@
 ############################################################
 # Dockerfile to build Edge-Tier Cache container images for
 # Apache Traffic Control
-# Based on CentOS 7.2
+# Based on CentOS 8
 ############################################################
 
-# Check for proper invocation
-PWD := $(strip $(lastword $(patsubst %/,%,$(notdir $(shell pwd)))))
-makefile_dir := $(strip $(notdir $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))))
-
-ifneq ($(PWD),$(makefile_dir))
-$(error This makefile MUST be run from within its directory)
+ifeq ($(RHEL_VERSION),)
+	export RHEL_VERSION := 8
+else
+	RHEL_VERSION := $(shell echo $(RHEL_VERSION) | cut -f1 -d.)
 endif
 
+CIAB_DIR_RELATIVE := $(dir $(MAKEFILE_LIST))
+CIAB_DIR_ABSOLUTE := $(shell cd $(CIAB_DIR_RELATIVE) && pwd)
+TC_DIR := $(CIAB_DIR_RELATIVE)../..
+
+PKG_COMMAND := $(TC_DIR)/pkg
+PKG_FLAGS := -v -$(RHEL_VERSION)
+BUILD_SUFFIX := _build
 BUILD_NUMBER := $(shell git rev-list HEAD 2>/dev/null | wc -l | tr -d '[[:space:]]').$(shell git rev-parse --short=8 HEAD)
-TC_VERSION := $(shell cat "../../VERSION")
-TOMCAT_VERSION := $(shell grep 'export TOMCAT_VERSION=' ../../traffic_router/build/build_rpm.sh  | cut -d '=' -f 2)
-TOMCAT_RELEASE := $(shell grep 'export TOMCAT_RELEASE=' ../../traffic_router/build/build_rpm.sh  | cut -d '=' -f 2)
+TC_VERSION := $(shell cat "$(TC_DIR)/VERSION")
+TOMCAT_VERSION := $(shell grep '^\s*TOMCAT_VERSION=' "$(TC_DIR)/traffic_router/build/build_rpm.sh"  | cut -d= -f2)
+TOMCAT_RELEASE := $(shell grep '^\s*TOMCAT_RELEASE=' "$(TC_DIR)/traffic_router/build/build_rpm.sh"  | cut -d= -f2)
 
-RHEL_VERSION := el7
+SPECIAL_SAUCE := $(TC_VERSION)-$(BUILD_NUMBER).el$(RHEL_VERSION).x86_64.rpm
+SPECIAL_SEASONING := $(TOMCAT_VERSION).$(TOMCAT_RELEASE)-$(BUILD_NUMBER).el$(RHEL_VERSION).x86_64.rpm
 
-SPECIAL_SAUCE := $(TC_VERSION)-$(BUILD_NUMBER).$(RHEL_VERSION).x86_64.rpm
-SPECIAL_SEASONING := $(TOMCAT_VERSION).$(TOMCAT_RELEASE)-$(BUILD_NUMBER).$(RHEL_VERSION).x86_64.rpm
+TO_SOURCE := $(wildcard $(TC_DIR)/traffic_ops/**)
+TO_SOURCE += $(wildcard $(TC_DIR)/traffic_ops_db/**)
+ORT_SOURCE:= $(wildcard $(TC_DIR)/traffic_ops_ort/atstccfg/**.go)
+ORT_SOURCE+= $(wildcard $(TC_DIR)/lib/**.go)
+TM_SOURCE := $(wildcard $(TC_DIR)/traffic_monitor/**)
+TP_SOURCE := $(wildcard $(TC_DIR)/traffic_portal/**)
+TR_SOURCE := $(wildcard $(TC_DIR)/traffic_router/**)
+TS_SOURCE := $(wildcard $(TC_DIR)/traffic_stats/**)
 
-TO_SOURCE := $(wildcard ../../traffic_ops/**/*)
-ORT_SOURCE:= $(wildcard ../../traffic_ops/bin/*)
-TO_SOURCE += $(wildcard ../../traffic_ops_db/**/*)
-TM_SOURCE := $(wildcard ../../traffic_monitor/**/*)
-TP_SOURCE := $(wildcard ../../traffic_portal/**/*)
-TR_SOURCE := $(wildcard ../../traffic_router/**/*)
-TS_SOURCE := $(wildcard ../../traffic_stats/**/*)
+TM_RPM := traffic_monitor/traffic_monitor.rpm
+TO_RPM := traffic_ops/traffic_ops.rpm
+TP_RPM := traffic_portal/traffic_portal.rpm
+TR_RPM := traffic_router/traffic_router.rpm
+TOMCAT_RPM := traffic_router/tomcat.rpm
+TS_RPM := traffic_stats/traffic_stats.rpm
+ORT_RPM := cache/traffic_ops_ort.rpm
 
-.PHONY: clean very-clean all nearly-all
+TM_RPM_RELATIVE := $(CIAB_DIR_RELATIVE)$(TM_RPM)
+TO_RPM_RELATIVE := $(CIAB_DIR_RELATIVE)$(TO_RPM)
+TP_RPM_RELATIVE := $(CIAB_DIR_RELATIVE)$(TP_RPM)
+TR_RPM_RELATIVE := $(CIAB_DIR_RELATIVE)$(TR_RPM)
+TOMCAT_RPM_RELATIVE := $(CIAB_DIR_RELATIVE)$(TOMCAT_RPM)
+TS_RPM_RELATIVE := $(CIAB_DIR_RELATIVE)$(TS_RPM)
+ORT_RPM_RELATIVE := $(CIAB_DIR_RELATIVE)$(ORT_RPM)
+
+TM_RPM_ABSOLUTE := $(CIAB_DIR_ABSOLUTE)/$(TM_RPM)
+TO_RPM_ABSOLUTE := $(CIAB_DIR_ABSOLUTE)/$(TO_RPM)
+TP_RPM_ABSOLUTE := $(CIAB_DIR_ABSOLUTE)/$(TP_RPM)
+TR_RPM_ABSOLUTE := $(CIAB_DIR_ABSOLUTE)/$(TR_RPM)
+TOMCAT_RPM_ABSOLUTE := $(CIAB_DIR_ABSOLUTE)/$(TOMCAT_RPM)
+TS_RPM_ABSOLUTE := $(CIAB_DIR_ABSOLUTE)/$(TS_RPM)
+ORT_RPM_ABSOLUTE := $(CIAB_DIR_ABSOLUTE)/$(ORT_RPM)
+
+TM_DIST_RPM := $(TC_DIR)/dist/traffic_monitor-$(SPECIAL_SAUCE)
+TO_DIST_RPM := $(TC_DIR)/dist/traffic_ops-$(SPECIAL_SAUCE)
+TP_DIST_RPM := $(TC_DIR)/dist/traffic_portal-$(SPECIAL_SAUCE)
+TR_DIST_RPM := $(TC_DIR)/dist/traffic_router-$(SPECIAL_SAUCE)
+TOMCAT_DIST_RPM := $(TC_DIR)/dist/tomcat-$(SPECIAL_SEASONING)
+TS_DIST_RPM := $(TC_DIR)/dist/traffic_stats-$(SPECIAL_SAUCE)
+ORT_DIST_RPM := $(TC_DIR)/dist/traffic_ops_ort-$(SPECIAL_SAUCE)
+
+.PHONY: all build-builders clean debug native nearly-all pull-builders very-clean
 
 # Default target; builds all pre-requisite rpms from source trees
-all: traffic_monitor/traffic_monitor.rpm traffic_portal/traffic_portal.rpm traffic_ops/traffic_ops.rpm traffic_router/traffic_router.rpm traffic_router/tomcat.rpm traffic_stats/traffic_stats.rpm
+all: $(ORT_RPM_RELATIVE) $(TM_RPM_RELATIVE) $(TP_RPM_RELATIVE) $(TO_RPM_RELATIVE) $(TR_RPM_RELATIVE) $(TOMCAT_RPM_RELATIVE) $(TS_RPM_RELATIVE)
 
-# Actual output rpm recipies
-traffic_monitor/traffic_monitor.rpm: ../../dist/traffic_monitor-$(SPECIAL_SAUCE)
-	cp -f $? $@
-traffic_ops/traffic_ops.rpm: ../../dist/traffic_ops-$(SPECIAL_SAUCE)
-	cp -f $? $@
-mid/traffic_ops_ort.rpm edge/traffic_ops_ort.rpm: ../../dist/traffic_ops_ort-$(SPECIAL_SAUCE)
-	cp -f $? $@
-traffic_portal/traffic_portal.rpm: ../../dist/traffic_portal-$(SPECIAL_SAUCE)
-	cp -f $? $@
-traffic_router/traffic_router.rpm: ../../dist/traffic_router-$(SPECIAL_SAUCE)
-	cp -f $? $@
-traffic_router/tomcat.rpm: ../../dist/tomcat-$(SPECIAL_SEASONING)
-	cp -f $? $@
-traffic_stats/traffic_stats.rpm: ../../dist/traffic_stats-$(SPECIAL_SAUCE)
-	cp -f $? $@
+ifneq ($(filter build-builders,$(MAKECMDGOALS)),)
+PKG_FLAGS += -b
+ifneq ($(MAKECMDGOALS),build-builders)
+MAKECMDGOALS := $(filter-out build-builders,$(MAKECMDGOALS))
+build-builders: $(MAKECMDGOALS)
+else
+build-builders: all
+endif
+endif
+
+ifneq ($(filter debug,$(MAKECMDGOALS)),)
+PKG_FLAGS += -d
+export DEBUG_BUILD = true
+ifneq ($(MAKECMDGOALS),debug)
+MAKECMDGOALS := $(filter-out debug,$(MAKECMDGOALS))
+debug: $(MAKECMDGOALS)
+else
+debug: all
+endif
+endif
+
+ifneq ($(filter native,$(MAKECMDGOALS)),)
+PKG_COMMAND := $(TC_DIR)/build/clean_build.sh
+PKG_FLAGS :=
+BUILD_SUFFIX :=
+ifneq ($(MAKECMDGOALS),native)
+MAKECMDGOALS := $(filter-out native,$(MAKECMDGOALS))
+native: $(MAKECMDGOALS)
+else
+native: all
+endif
+endif
+
+ifneq ($(filter pull-builders,$(MAKECMDGOALS)),)
+PKG_FLAGS += -p
+ifneq ($(MAKECMDGOALS),pull-builders)
+MAKECMDGOALS := $(filter-out pull-builders,$(MAKECMDGOALS))
+pull-builders: $(MAKECMDGOALS)
+else
+pull-builders: all
+endif
+endif
+
+# Relative path output RPM recipies
+$(TM_RPM_RELATIVE): $(TM_DIST_RPM)
+	cp -f "$?" "$@"
+$(TO_RPM_RELATIVE): $(TO_DIST_RPM)
+	cp -f "$?" "$@"
+$(TP_RPM_RELATIVE): $(TP_DIST_RPM)
+	cp -f "$?" "$@"
+$(TR_RPM_RELATIVE): $(TR_DIST_RPM)
+	cp -f "$?" "$@"
+$(TOMCAT_RPM_RELATIVE): $(TOMCAT_DIST_RPM)
+	cp -f "$?" "$@"
+$(TS_RPM_RELATIVE): $(TS_DIST_RPM)
+	cp -f "$?" "$@"
+$(ORT_RPM_RELATIVE): $(ORT_DIST_RPM)
+	cp -f "$?" "$@"
+
+# Absolute path output RPM recipies
+$(TM_RPM_ABSOLUTE): $(TM_DIST_RPM)
+	cp -f "$?" "$@"
+$(TO_RPM_ABSOLUTE): $(TO_DIST_RPM)
+	cp -f "$?" "$@"
+$(TP_RPM_ABSOLUTE): $(TP_DIST_RPM)
+	cp -f "$?" "$@"
+$(TR_RPM_ABSOLUTE): $(TR_DIST_RPM)
+	cp -f "$?" "$@"
+$(TOMCAT_RPM_ABSOLUTE): $(TOMCAT_DIST_RPM)
+	cp -f "$?" "$@"
+$(TS_RPM_ABSOLUTE): $(TS_DIST_RPM)
+	cp -f "$?" "$@"
+$(ORT_RPM_ABSOLUTE): $(ORT_DIST_RPM)
+	cp -f "$?" "$@"
 
 # Dist rpms
-../../dist/traffic_monitor-$(SPECIAL_SAUCE): $(TM_SOURCE)
-	sudo ../../pkg -v traffic_monitor_build
+$(TM_DIST_RPM): $(TM_SOURCE)
+	"$(PKG_COMMAND)" $(PKG_FLAGS) traffic_monitor$(BUILD_SUFFIX)
 
-../../dist/traffic_ops-$(SPECIAL_SAUCE): $(TO_SOURCE)
-	sudo ../../pkg -v traffic_ops_build
+$(TO_DIST_RPM): $(TO_SOURCE)
+	"$(PKG_COMMAND)" $(PKG_FLAGS) traffic_ops$(BUILD_SUFFIX)
 
-../../dist/traffic_ops_ort-$(SPECIAL_SAUCE): $(ORT_SOURCE)
-	sudo ../../pkg -v traffic_ops_build
+$(TP_DIST_RPM): $(TP_SOURCE)
+	"$(PKG_COMMAND)" $(PKG_FLAGS) traffic_portal$(BUILD_SUFFIX)
 
-../../dist/traffic_portal-$(SPECIAL_SAUCE): $(TP_SOURCE)
-	sudo ../../pkg -v traffic_portal_build
+$(TR_DIST_RPM) $(TOMCAT_DIST_RPM): $(TR_SOURCE)
+	"$(PKG_COMMAND)" $(PKG_FLAGS) traffic_router$(BUILD_SUFFIX)
 
-../../dist/traffic_router-$(SPECIAL_SAUCE) ../../dist/tomcat-$(SPECIAL_SEASONING): $(TR_SOURCE)
-	sudo ../../pkg -v traffic_router_build
+$(TS_DIST_RPM): $(TS_SOURCE)
+	"$(PKG_COMMAND)" $(PKG_FLAGS) traffic_stats$(BUILD_SUFFIX)
 
-../../dist/traffic_stats-$(SPECIAL_SAUCE): $(TS_SOURCE)
-	sudo ../../pkg -v traffic_stats_build
+$(ORT_DIST_RPM): $(ORT_SOURCE)
+	"$(PKG_COMMAND)" $(PKG_FLAGS) traffic_ops_ort$(BUILD_SUFFIX)
 
 clean:
-	$(RM) traffic_ops/traffic_ops.rpm traffic_monitor/traffic_monitor.rpm traffic_portal/traffic_portal.rpm traffic_router/traffic_router.rpm traffic_router/tomcat.rpm edge/traffic_ops_ort.rpm mid/traffic_ops_ort.rpm
+	cd "$(CIAB_DIR_RELATIVE)"
+	$(RM) $(TM_RPM_RELATIVE) $(TO_RPM_RELATIVE) $(TP_RPM_RELATIVE) $(TR_RPM_RELATIVE) $(TOMCAT_RPM_RELATIVE) $(ORT_RPM_RELATIVE) $(TS_RPM_RELATIVE)
 
 very-clean: clean
 	$(warning This will destroy ALL OUTPUT RPMS IN 'dist'. Please be sure this is what you want)
-	sleep 2 # Give users a sceond to cancel
-	$(RM) ../../dist/*
+	sleep 2 # Give users a second to cancel
+	$(RM) -r "$(TC_DIR)/dist"/*
