@@ -18,9 +18,29 @@
  */
 import { browser, by, element } from 'protractor';
 
-import { config, randomize } from '../config';
+import { randomize } from '../config';
 import { BasePage } from './BasePage.po';
 import { SideNavigationPage } from './SideNavigationPage.po';
+
+interface CreateProfile {
+    CDN: string;
+    Description: string;
+    Name: string;
+    RoutingDisable: string;
+    Type: string;
+    validationMessage?: string;
+}
+
+interface UpdateProfile {
+    description: string;
+    Type: string;
+    validationMessage?: string;
+}
+
+interface DeleteProfile {
+    Name: string;
+    validationMessage?: string;
+}
 
 export class ProfilesPage extends BasePage {
 
@@ -31,7 +51,6 @@ export class ProfilesPage extends BasePage {
     private txtRoutingDisable = element(by.name('routingDisabled'));
     private txtDescription = element(by.id('description'));
     private txtSearch = element(by.id('profilesTable_filter')).element(by.css('label input'));
-    private mnuProfilesTable = element(by.id('profilesTable'));
     private btnDelete = element(by.buttonText('Delete'));
     private txtConfirmName = element(by.name('confirmWithNameInput'));
     private btnMore = element(by.name('moreBtn'));
@@ -40,17 +59,19 @@ export class ProfilesPage extends BasePage {
     private txtCompareDropdown2 = element(by.name('compareDropdown2'));
     private btnCompareSubmit = element(by.name('compareSubmit'));
     private mnuCompareTable = element(by.id('profilesParamsCompareTable_wrapper'));
-    private readonly config = config;
     private randomize = randomize;
+
     async OpenProfilesPage() {
         let snp = new SideNavigationPage();
         await snp.NavigateToProfilesPage();
     }
+
     async OpenConfigureMenu() {
         let snp = new SideNavigationPage();
         await snp.ClickConfigureMenu();
     }
-    async CreateProfile(profile) {
+
+    public async CreateProfile(profile: CreateProfile): Promise<boolean> {
         let result = false;
         let basePage = new BasePage();
         let snp = new SideNavigationPage();
@@ -71,8 +92,8 @@ export class ProfilesPage extends BasePage {
         })
         return result;
     }
-    async SearchProfile(nameProfiles: string) {
-        let result = false;
+
+    public async SearchProfile(nameProfiles: string): Promise<boolean> {
         let snp = new SideNavigationPage();
         let name = nameProfiles + this.randomize;
         await snp.NavigateToProfilesPage();
@@ -80,12 +101,11 @@ export class ProfilesPage extends BasePage {
         await this.txtSearch.sendKeys(name);
         if (await browser.isElementPresent(element(by.xpath("//td[@data-search='^" + name + "$']"))) == true) {
             await element(by.xpath("//td[@data-search='^" + name + "$']")).click();
-            result = true;
-        } else {
-            result = undefined;
+            return true;
         }
-        return result;
+        return false;
     }
+
     async CompareProfile(profile1: string, profile2: string) {
         let result = false;
         let snp = new SideNavigationPage();
@@ -100,8 +120,8 @@ export class ProfilesPage extends BasePage {
             return result;
         }
     }
-    async UpdateProfile(profile) {
-        let result = false;
+
+    public async UpdateProfile(profile: UpdateProfile): Promise<boolean | undefined> {
         let basePage = new BasePage();
         switch (profile.description) {
             case "update profile type":
@@ -109,21 +129,12 @@ export class ProfilesPage extends BasePage {
                 await basePage.ClickUpdate();
                 break;
             default:
-                result = undefined;
+                return undefined;
         }
-        if (result =! undefined) {
-            result = await basePage.GetOutputMessage().then(function (value) {
-                if (profile.validationMessage == value) {
-                    return true;
-                } else {
-                    return false;
-                }
-            })
-
-        }
-        return result;
+        return await basePage.GetOutputMessage().then(value => profile.validationMessage === value);
     }
-    async DeleteProfile(profile) {
+
+    public async DeleteProfile(profile: DeleteProfile): Promise<boolean> {
         let result = false;
         let basePage = new BasePage();
         await this.btnDelete.click();

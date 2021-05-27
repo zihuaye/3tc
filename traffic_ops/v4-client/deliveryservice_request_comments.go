@@ -1,3 +1,5 @@
+package client
+
 /*
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,69 +15,54 @@
    limitations under the License.
 */
 
-package client
-
 import (
-	"fmt"
-	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/traffic_ops/toclientlib"
 )
 
-const (
-	APIDeliveryServiceRequestComments = "/deliveryservice_request_comments"
-)
+// apiDeliveryServiceRequestComments is the API version-relative route to
+// the /deliveryservice_request_comments endpoint.
+const apiDeliveryServiceRequestComments = "/deliveryservice_request_comments"
 
-// Create a delivery service request comment
-func (to *Session) CreateDeliveryServiceRequestComment(comment tc.DeliveryServiceRequestComment) (tc.Alerts, toclientlib.ReqInf, error) {
+// CreateDeliveryServiceRequestComment creates the given Delivery Service
+// Request comment.
+func (to *Session) CreateDeliveryServiceRequestComment(comment tc.DeliveryServiceRequestComment, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
 	var alerts tc.Alerts
-	reqInf, err := to.post(APIDeliveryServiceRequestComments, comment, nil, &alerts)
+	reqInf, err := to.post(apiDeliveryServiceRequestComments, opts, comment, &alerts)
 	return alerts, reqInf, err
 }
 
-func (to *Session) UpdateDeliveryServiceRequestCommentByIDWithHdr(id int, comment tc.DeliveryServiceRequestComment, header http.Header) (tc.Alerts, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?id=%d", APIDeliveryServiceRequestComments, id)
+// UpdateDeliveryServiceRequestComment replaces the Delivery Service Request
+// comment identified by 'id' with the one provided.
+func (to *Session) UpdateDeliveryServiceRequestComment(id int, comment tc.DeliveryServiceRequestComment, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
+	if opts.QueryParameters == nil {
+		opts.QueryParameters = url.Values{}
+	}
+	opts.QueryParameters.Set("id", strconv.Itoa(id))
 	var alerts tc.Alerts
-	reqInf, err := to.put(route, comment, header, &alerts)
+	reqInf, err := to.put(apiDeliveryServiceRequestComments, opts, comment, &alerts)
 	return alerts, reqInf, err
 }
 
-// Update a delivery service request by ID
-// Deprecated: UpdateDeliveryServiceRequestCommentByID will be removed in 6.0. Use UpdateDeliveryServiceRequestCommentByIDWithHdr.
-func (to *Session) UpdateDeliveryServiceRequestCommentByID(id int, comment tc.DeliveryServiceRequestComment) (tc.Alerts, toclientlib.ReqInf, error) {
-	return to.UpdateDeliveryServiceRequestCommentByIDWithHdr(id, comment, nil)
-}
-
-func (to *Session) GetDeliveryServiceRequestCommentsWithHdr(header http.Header) ([]tc.DeliveryServiceRequestComment, toclientlib.ReqInf, error) {
+// GetDeliveryServiceRequestComments retrieves all comments on all Delivery
+// Service Requests.
+func (to *Session) GetDeliveryServiceRequestComments(opts RequestOptions) (tc.DeliveryServiceRequestCommentsResponse, toclientlib.ReqInf, error) {
 	var data tc.DeliveryServiceRequestCommentsResponse
-	reqInf, err := to.get(APIDeliveryServiceRequestComments, header, &data)
-	return data.Response, reqInf, err
+	reqInf, err := to.get(apiDeliveryServiceRequestComments, opts, &data)
+	return data, reqInf, err
 }
 
-// Returns a list of delivery service request comments
-// Deprecated: GetDeliveryServiceRequestComments will be removed in 6.0. Use GetDeliveryServiceRequestCommentsWithHdr.
-func (to *Session) GetDeliveryServiceRequestComments() ([]tc.DeliveryServiceRequestComment, toclientlib.ReqInf, error) {
-	return to.GetDeliveryServiceRequestCommentsWithHdr(nil)
-}
-
-func (to *Session) GetDeliveryServiceRequestCommentByIDWithHdr(id int, header http.Header) ([]tc.DeliveryServiceRequestComment, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?id=%d", APIDeliveryServiceRequestComments, id)
-	var data tc.DeliveryServiceRequestCommentsResponse
-	reqInf, err := to.get(route, header, &data)
-	return data.Response, reqInf, err
-}
-
-// GET a delivery service request comment by ID
-// Deprecated: GetDeliveryServiceRequestCommentByID will be removed in 6.0. Use GetDeliveryServiceRequestCommentByIDWithHdr.
-func (to *Session) GetDeliveryServiceRequestCommentByID(id int) ([]tc.DeliveryServiceRequestComment, toclientlib.ReqInf, error) {
-	return to.GetDeliveryServiceRequestCommentByIDWithHdr(id, nil)
-}
-
-// DELETE a delivery service request comment by ID
-func (to *Session) DeleteDeliveryServiceRequestCommentByID(id int) (tc.Alerts, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?id=%d", APIDeliveryServiceRequestComments, id)
+// DeleteDeliveryServiceRequestComment deletes the Delivery Service Request
+// comment with the given ID.
+func (to *Session) DeleteDeliveryServiceRequestComment(id int, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
+	if opts.QueryParameters == nil {
+		opts.QueryParameters = url.Values{}
+	}
+	opts.QueryParameters.Set("id", strconv.Itoa(id))
 	var alerts tc.Alerts
-	reqInf, err := to.del(route, nil, &alerts)
+	reqInf, err := to.del(apiDeliveryServiceRequestComments, opts, &alerts)
 	return alerts, reqInf, err
 }

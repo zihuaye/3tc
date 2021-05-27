@@ -16,22 +16,27 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { readFileSync } from "fs";
 import { resolve } from "path";
 
 import { emptyDir } from "fs-extra";
 import { Config, browser } from 'protractor';
+import { JUnitXmlReporter } from 'jasmine-reporters';
 import HtmlReporter from "protractor-beautiful-reporter";
 
 import { API } from './CommonUtils/API';
 import * as conf from "./config.json"
+import { prerequisites } from "./Data";
 
-let downloadsPath = resolve('Downloads');
+const downloadsPath = resolve('Downloads');
 export const randomize = Math.random().toString(36).substring(3, 7);
 export const twoNumberRandomize = Math.floor(Math.random() * 101);
 
 export let config: Config = conf;
-config.capabilities.chromeOptions.prefs.download.default_directory = downloadsPath;
+if (config.capabilities) {
+  config.capabilities.chromeOptions.prefs.download.default_directory = downloadsPath;
+} else {
+  config.capabilities = {chromeOptions: {prefs: {download: {default_directory: downloadsPath}}}};
+}
 config.onPrepare = async function () {
     await browser.waitForAngularEnabled(true);
 
@@ -39,27 +44,28 @@ config.onPrepare = async function () {
       console.log(err);
     });
 
-    jasmine.getEnv().addReporter(new HtmlReporter({
-      baseDirectory: './Reports/',
-      clientDefaults: {
-        showTotalDurationIn: "header",
-        totalDurationFormat: "hms"
-      },
-      jsonsSubfolder: 'jsons',
-      screenshotsSubfolder: 'images',
-      takeScreenShotsOnlyForFailedSpecs: true,
-      docTitle: 'Traffic Portal Test Cases'
-    }).getJasmine2Reporter());
-
-    try {
-      let api = new API();
-      let setupFile = 'Data/Prerequisites/user.setup.json';
-      let setupData = JSON.parse(readFileSync(setupFile, "utf8"));
-      let output = await api.UseAPI(setupData);
-      if (output != null){
-        throw new Error(output)
-      }
-    } catch (error) {
-      throw error
+    if (config.params.junitReporter === true) {
+        jasmine.getEnv().addReporter(
+            new JUnitXmlReporter({
+                savePath: '/portaltestresults',
+                filePrefix: 'portaltestresults',
+                consolidateAll: true
+            }));
     }
+    else {
+        jasmine.getEnv().addReporter(new HtmlReporter({
+            baseDirectory: './Reports/',
+            clientDefaults: {
+                showTotalDurationIn: "header",
+                totalDurationFormat: "hms"
+            },
+            jsonsSubfolder: 'jsons',
+            screenshotsSubfolder: 'images',
+            takeScreenShotsOnlyForFailedSpecs: true,
+            docTitle: 'Traffic Portal Test Cases'
+        }).getJasmine2Reporter());
+    }
+
+    const api = new API();
+    await api.UseAPI(prerequisites);
 }

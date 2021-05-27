@@ -1,3 +1,5 @@
+package client
+
 /*
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,76 +15,49 @@
    limitations under the License.
 */
 
-package client
-
 import (
 	"fmt"
-	"net/http"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/traffic_ops/toclientlib"
 )
 
+// apiProfileParameters is the full path to the /profileparameters API endpoint.
+const apiProfileParameters = "/profileparameters"
+
+// Supported query string parameter names.
 const (
-	APIProfileParameters  = "/profileparameters"
-	ProfileIdQueryParam   = "profileId"
-	ParameterIdQueryParam = "parameterId"
+	ProfileIDQueryParam   = "profileId"
+	ParameterIDQueryParam = "parameterId"
 )
 
-// Create a ProfileParameter
-func (to *Session) CreateProfileParameter(pp tc.ProfileParameter) (tc.Alerts, toclientlib.ReqInf, error) {
+// CreateProfileParameter assigns a Parameter to a Profile.
+func (to *Session) CreateProfileParameter(pp tc.ProfileParameterCreationRequest, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
 	var alerts tc.Alerts
-	reqInf, err := to.post(APIProfileParameters, pp, nil, &alerts)
+	reqInf, err := to.post(apiProfileParameters, opts, pp, &alerts)
 	return alerts, reqInf, err
 }
 
-// CreateMultipleProfileParameters creates multiple ProfileParameters at once.
-func (to *Session) CreateMultipleProfileParameters(pps []tc.ProfileParameter) (tc.Alerts, toclientlib.ReqInf, error) {
+// CreateMultipleProfileParameters assigns multip Parameters to one or more
+// Profiles at once.
+func (to *Session) CreateMultipleProfileParameters(pps []tc.ProfileParameterCreationRequest, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
 	var alerts tc.Alerts
-	reqInf, err := to.post(APIProfileParameters, pps, nil, &alerts)
+	reqInf, err := to.post(apiProfileParameters, opts, pps, &alerts)
 	return alerts, reqInf, err
 }
 
-func (to *Session) GetProfileParametersWithHdr(header http.Header) ([]tc.ProfileParameter, toclientlib.ReqInf, error) {
-	return to.GetProfileParameterByQueryParamsWithHdr("", header)
+// GetProfileParameters retrieves associations between Profiles and Parameters.
+func (to *Session) GetProfileParameters(opts RequestOptions) (tc.ProfileParametersAPIResponse, toclientlib.ReqInf, error) {
+	var data tc.ProfileParametersAPIResponse
+	reqInf, err := to.get(apiProfileParameters, opts, &data)
+	return data, reqInf, err
 }
 
-// Returns a list of Profile Parameters
-// Deprecated: GetProfileParameters will be removed in 6.0. Use GetProfileParametersWithHdr.
-func (to *Session) GetProfileParameters() ([]tc.ProfileParameter, toclientlib.ReqInf, error) {
-	return to.GetProfileParametersWithHdr(nil)
-}
-
-func (to *Session) GetProfileParameterByQueryParamsWithHdr(queryParams string, header http.Header) ([]tc.ProfileParameter, toclientlib.ReqInf, error) {
-	URI := APIProfileParameters + queryParams
-	var data tc.ProfileParametersNullableResponse
-	reqInf, err := to.get(URI, header, &data)
-	if err != nil {
-		return nil, reqInf, err
-	}
-	ret := make([]tc.ProfileParameter, len(data.Response))
-	for i, pp := range data.Response {
-		ret[i] = tc.ProfileParameter{}
-		if pp.Profile != nil {
-			ret[i].Profile = *pp.Profile
-		}
-		if pp.Parameter != nil {
-			ret[i].ParameterID = *pp.Parameter
-		}
-	}
-	return ret, reqInf, nil
-}
-
-// GET a Profile Parameter by the Parameter
-// Deprecated: GetProfileParameterByQueryParams will be removed in 6.0. Use GetProfileParameterByQueryParamsWithHdr.
-func (to *Session) GetProfileParameterByQueryParams(queryParams string) ([]tc.ProfileParameter, toclientlib.ReqInf, error) {
-	return to.GetProfileParameterByQueryParamsWithHdr(queryParams, nil)
-}
-
-// DELETE a Parameter by Parameter
-func (to *Session) DeleteParameterByProfileParameter(profile int, parameter int) (tc.Alerts, toclientlib.ReqInf, error) {
-	URI := fmt.Sprintf("%s/%d/%d", APIProfileParameters, profile, parameter)
+// DeleteProfileParameter removes the Parameter with the ID 'parameter' from
+// the Profile identified by the ID 'profile'.
+func (to *Session) DeleteProfileParameter(profile int, parameter int, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
+	URI := fmt.Sprintf("%s/%d/%d", apiProfileParameters, profile, parameter)
 	var alerts tc.Alerts
-	reqInf, err := to.del(URI, nil, &alerts)
+	reqInf, err := to.del(URI, opts, &alerts)
 	return alerts, reqInf, err
 }

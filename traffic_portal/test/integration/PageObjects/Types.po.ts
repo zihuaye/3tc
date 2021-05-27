@@ -18,9 +18,26 @@
  */
 import { browser, by, element } from 'protractor';
 
-import { config, randomize } from '../config';
+import { randomize } from '../config';
 import { BasePage } from './BasePage.po';
 import { SideNavigationPage } from './SideNavigationPage.po';
+
+interface CreateType {
+    Name: string;
+    DescriptionData: string;
+    validationMessage?: string;
+}
+
+interface UpdateType {
+    description: string;
+    DescriptionData: string;
+    validationMessage?: string;
+}
+
+interface DeleteType {
+    Name: string;
+    validationMessage?: string;
+}
 
 export class TypesPage extends BasePage {
     private btnCreateNewType = element(by.xpath("//button[@title='Create Type']//i[1]"));
@@ -29,7 +46,6 @@ export class TypesPage extends BasePage {
     private txtSearch = element(by.id('typesTable_filter')).element(by.css('label input'));
     private btnDelete = element(by.buttonText('Delete'));
     private txtConfirmName = element(by.name('confirmWithNameInput'));
-    private readonly config = config;
     private randomize = randomize;
 
     async OpenTypesPage() {
@@ -40,7 +56,8 @@ export class TypesPage extends BasePage {
         let snp = new SideNavigationPage();
         await snp.ClickConfigureMenu();
     }
-    async CreateType(type) {
+
+    public async CreateType(type: CreateType): Promise<boolean> {
         let result = false;
         let basePage = new BasePage();
         await this.btnCreateNewType.click();
@@ -56,8 +73,8 @@ export class TypesPage extends BasePage {
         })
         return result;
     }
-    async SearchType(nameTypes: string) {
-        let result = false;
+
+    public async SearchType(nameTypes: string): Promise<boolean> {
         let snp = new SideNavigationPage();
         let name = nameTypes + this.randomize;
         await snp.NavigateToTypesPage();
@@ -65,14 +82,12 @@ export class TypesPage extends BasePage {
         await this.txtSearch.sendKeys(name);
         if (await browser.isElementPresent(element(by.xpath("//td[@data-search='^" + name + "$']"))) == true) {
             await element(by.xpath("//td[@data-search='^" + name + "$']")).click();
-            result = true;
-        } else {
-            result = undefined;
+            return true;
         }
-        return result;
+        return false;
     }
-    async UpdateType(type) {
-        let result = false;
+
+    public async UpdateType(type: UpdateType): Promise<boolean | undefined> {
         let basePage = new BasePage();
         switch (type.description) {
             case "update description type":
@@ -81,18 +96,12 @@ export class TypesPage extends BasePage {
                 await basePage.ClickUpdate();
                 break;
             default:
-                result = undefined;
+                return undefined;
         }
-        result = await basePage.GetOutputMessage().then(function (value) {
-            if (type.validationMessage == value) {
-                return true;
-            } else {
-                return false;
-            }
-        })
-        return result;
+        return await basePage.GetOutputMessage().then(value => type.validationMessage === value);
     }
-    async DeleteTypes(type) {
+
+    public async DeleteTypes(type: DeleteType): Promise<boolean> {
         let name = type.Name + this.randomize;
         let result = false;
         let basePage = new BasePage();

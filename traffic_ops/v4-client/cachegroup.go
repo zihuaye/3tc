@@ -1,3 +1,5 @@
+package client
+
 /*
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,155 +15,97 @@
    limitations under the License.
 */
 
-package client
-
 import (
 	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
-	"strconv"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/traffic_ops/toclientlib"
 )
 
-const (
-	APICachegroups = "/cachegroups"
-)
+// apiCachegroups is the API version-relative path for the /cachegroups API endpoint.
+const apiCachegroups = "/cachegroups"
 
-// Create a CacheGroup.
-func (to *Session) CreateCacheGroupNullable(cachegroup tc.CacheGroupNullable) (*tc.CacheGroupDetailResponse, toclientlib.ReqInf, error) {
+// CreateCacheGroup creates the given Cache Group.
+func (to *Session) CreateCacheGroup(cachegroup tc.CacheGroupNullable, opts RequestOptions) (tc.CacheGroupDetailResponse, toclientlib.ReqInf, error) {
+	var resp tc.CacheGroupDetailResponse
 	if cachegroup.TypeID == nil && cachegroup.Type != nil {
-		ty, _, err := to.GetTypeByNameWithHdr(*cachegroup.Type, nil)
+		opts := NewRequestOptions()
+		opts.QueryParameters.Set("name", *cachegroup.Type)
+		ty, _, err := to.GetTypes(opts)
 		if err != nil {
-			return nil, toclientlib.ReqInf{}, err
+			return resp, toclientlib.ReqInf{}, fmt.Errorf("resolving Type name '%s' to an ID: %w - alerts: %+v", *cachegroup.Name, err, ty.Alerts)
 		}
-		if len(ty) == 0 {
-			return nil, toclientlib.ReqInf{}, errors.New("no type named " + *cachegroup.Type)
+		if len(ty.Response) == 0 {
+			return resp, toclientlib.ReqInf{}, errors.New("no type named " + *cachegroup.Type)
 		}
-		cachegroup.TypeID = &ty[0].ID
+		cachegroup.TypeID = &ty.Response[0].ID
 	}
 
 	if cachegroup.ParentCachegroupID == nil && cachegroup.ParentName != nil {
-		p, _, err := to.GetCacheGroupNullableByNameWithHdr(*cachegroup.ParentName, nil)
+		opts := NewRequestOptions()
+		opts.QueryParameters.Set("name", *cachegroup.ParentName)
+		p, _, err := to.GetCacheGroups(opts)
 		if err != nil {
-			return nil, toclientlib.ReqInf{}, err
+			resp.Alerts = p.Alerts
+			return resp, toclientlib.ReqInf{}, err
 		}
-		if len(p) == 0 {
-			return nil, toclientlib.ReqInf{}, errors.New("no cachegroup named " + *cachegroup.ParentName)
+		if len(p.Response) == 0 {
+			resp.Alerts = p.Alerts
+			return resp, toclientlib.ReqInf{}, errors.New("no cachegroup named " + *cachegroup.ParentName)
 		}
-		cachegroup.ParentCachegroupID = p[0].ID
+		cachegroup.ParentCachegroupID = p.Response[0].ID
 	}
 
 	if cachegroup.SecondaryParentCachegroupID == nil && cachegroup.SecondaryParentName != nil {
-		p, _, err := to.GetCacheGroupNullableByNameWithHdr(*cachegroup.SecondaryParentName, nil)
+		opts := NewRequestOptions()
+		opts.QueryParameters.Set("name", *cachegroup.SecondaryParentName)
+		p, _, err := to.GetCacheGroups(opts)
 		if err != nil {
-			return nil, toclientlib.ReqInf{}, err
+			resp.Alerts = p.Alerts
+			return resp, toclientlib.ReqInf{}, err
 		}
-		if len(p) == 0 {
-			return nil, toclientlib.ReqInf{}, errors.New("no cachegroup named " + *cachegroup.ParentName)
+		if len(p.Response) == 0 {
+			resp.Alerts = p.Alerts
+			return resp, toclientlib.ReqInf{}, errors.New("no cachegroup named " + *cachegroup.ParentName)
 		}
-		cachegroup.SecondaryParentCachegroupID = p[0].ID
+		cachegroup.SecondaryParentCachegroupID = p.Response[0].ID
 	}
 
+	reqInf, err := to.post(apiCachegroups, opts, cachegroup, &resp)
+	return resp, reqInf, err
+}
+
+// UpdateCacheGroup replaces the Cache Group identified by the given ID with
+// the given Cache Group.
+func (to *Session) UpdateCacheGroup(id int, cachegroup tc.CacheGroupNullable, opts RequestOptions) (tc.CacheGroupDetailResponse, toclientlib.ReqInf, error) {
+	route := fmt.Sprintf("%s/%d", apiCachegroups, id)
 	var cachegroupResp tc.CacheGroupDetailResponse
-	reqInf, err := to.post(APICachegroups, cachegroup, nil, &cachegroupResp)
-	return &cachegroupResp, reqInf, err
+	reqInf, err := to.put(route, opts, cachegroup, &cachegroupResp)
+	return cachegroupResp, reqInf, err
 }
 
-func (to *Session) UpdateCacheGroupNullableByIDWithHdr(id int, cachegroup tc.CacheGroupNullable, h http.Header) (*tc.CacheGroupDetailResponse, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s/%d", APICachegroups, id)
-	var cachegroupResp tc.CacheGroupDetailResponse
-	reqInf, err := to.put(route, cachegroup, h, &cachegroupResp)
-	return &cachegroupResp, reqInf, err
-}
-
-// Update a CacheGroup by ID.
-// Deprecated: UpdateCacheGroupNullableByID will be removed in 6.0. Use UpdateCacheGroupNullableByIDWithHdr.
-func (to *Session) UpdateCacheGroupNullableByID(id int, cachegroup tc.CacheGroupNullable) (*tc.CacheGroupDetailResponse, toclientlib.ReqInf, error) {
-	return to.UpdateCacheGroupNullableByIDWithHdr(id, cachegroup, nil)
-}
-
-func (to *Session) GetCacheGroupsNullableWithHdr(header http.Header) ([]tc.CacheGroupNullable, toclientlib.ReqInf, error) {
+// GetCacheGroups retrieves Cache Groups configured in Traffic Ops.
+func (to *Session) GetCacheGroups(opts RequestOptions) (tc.CacheGroupsNullableResponse, toclientlib.ReqInf, error) {
 	var data tc.CacheGroupsNullableResponse
-	reqInf, err := to.get(APICachegroups, header, &data)
-	return data.Response, reqInf, err
+	reqInf, err := to.get(apiCachegroups, opts, &data)
+	return data, reqInf, err
 }
 
-// Returns a list of CacheGroups.
-// Deprecated: GetCacheGroupsNullable will be removed in 6.0. Use GetCacheGroupsNullableWithHdr.
-func (to *Session) GetCacheGroupsNullable() ([]tc.CacheGroupNullable, toclientlib.ReqInf, error) {
-	return to.GetCacheGroupsNullableWithHdr(nil)
-}
-
-func (to *Session) GetCacheGroupNullableByIDWithHdr(id int, header http.Header) ([]tc.CacheGroupNullable, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?id=%v", APICachegroups, id)
-	var data tc.CacheGroupsNullableResponse
-	reqInf, err := to.get(route, header, &data)
-	return data.Response, reqInf, err
-}
-
-// GET a CacheGroup by the CacheGroup ID.
-// Deprecated: GetCacheGroupNullableByID will be removed in 6.0. Use GetCacheGroupNullableByIDWithHdr.
-func (to *Session) GetCacheGroupNullableByID(id int) ([]tc.CacheGroupNullable, toclientlib.ReqInf, error) {
-	return to.GetCacheGroupNullableByIDWithHdr(id, nil)
-}
-
-func (to *Session) GetCacheGroupNullableByNameWithHdr(name string, header http.Header) ([]tc.CacheGroupNullable, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?name=%s", APICachegroups, url.QueryEscape(name))
-	var data tc.CacheGroupsNullableResponse
-	reqInf, err := to.get(route, header, &data)
-	return data.Response, reqInf, err
-}
-
-// GET a CacheGroup by the CacheGroup name.
-// Deprecated: GetCacheGroupNullableByName will be removed in 6.0. Use GetCacheGroupNullableByNameWithHdr.
-func (to *Session) GetCacheGroupNullableByName(name string) ([]tc.CacheGroupNullable, toclientlib.ReqInf, error) {
-	return to.GetCacheGroupNullableByNameWithHdr(name, nil)
-}
-
-func (to *Session) GetCacheGroupNullableByShortNameWithHdr(shortName string, header http.Header) ([]tc.CacheGroupNullable, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?shortName=%s", APICachegroups, url.QueryEscape(shortName))
-	var data tc.CacheGroupsNullableResponse
-	reqInf, err := to.get(route, header, &data)
-	return data.Response, reqInf, err
-}
-
-// GET a CacheGroup by the CacheGroup short name.
-// Deprecated: GetCacheGroupNullableByShortName will be removed in 6.0. Use GetCacheGroupNullableByShortNameWithHdr.
-func (to *Session) GetCacheGroupNullableByShortName(shortName string) ([]tc.CacheGroupNullable, toclientlib.ReqInf, error) {
-	return to.GetCacheGroupNullableByShortNameWithHdr(shortName, nil)
-}
-
-// DELETE a CacheGroup by ID.
-func (to *Session) DeleteCacheGroupByID(id int) (tc.Alerts, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s/%d", APICachegroups, id)
+// DeleteCacheGroup deletes the Cache Group with the given ID.
+func (to *Session) DeleteCacheGroup(id int, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
+	route := fmt.Sprintf("%s/%d", apiCachegroups, id)
 	var alerts tc.Alerts
-	reqInf, err := to.del(route, nil, &alerts)
+	reqInf, err := to.del(route, opts, &alerts)
 	return alerts, reqInf, err
 }
 
-// GetCacheGroupsByQueryParams gets cache groups by the given query parameters.
-// Deprecated: GetCacheGroupsByQueryParams will be removed in 6.0. Use GetCacheGroupsByQueryParamsWithHdr.
-func (to *Session) GetCacheGroupsByQueryParams(qparams url.Values) ([]tc.CacheGroupNullable, toclientlib.ReqInf, error) {
-	return to.GetCacheGroupsByQueryParamsWithHdr(qparams, nil)
-}
-
-func (to *Session) GetCacheGroupsByQueryParamsWithHdr(qparams url.Values, header http.Header) ([]tc.CacheGroupNullable, toclientlib.ReqInf, error) {
-	route := APICachegroups
-	if len(qparams) > 0 {
-		route += "?" + qparams.Encode()
-	}
-	var data tc.CacheGroupsNullableResponse
-	reqInf, err := to.get(route, header, &data)
-	return data.Response, reqInf, err
-}
-
-func (to *Session) SetCachegroupDeliveryServices(cgID int, dsIDs []int) (tc.CacheGroupPostDSRespResponse, toclientlib.ReqInf, error) {
-	uri := `/cachegroups/` + strconv.Itoa(cgID) + `/deliveryservices`
+// SetCacheGroupDeliveryServices assigns all of the assignable Cache Servers in
+// the identified Cache Group to all of the identified the Delivery Services.
+func (to *Session) SetCacheGroupDeliveryServices(cgID int, dsIDs []int, opts RequestOptions) (tc.CacheGroupPostDSRespResponse, toclientlib.ReqInf, error) {
+	uri := fmt.Sprintf("%s/%d/deliveryservices", apiCachegroups, cgID)
 	req := tc.CachegroupPostDSReq{DeliveryServices: dsIDs}
-	resp := tc.CacheGroupPostDSRespResponse{}
-	reqInf, err := to.post(uri, req, nil, &resp)
+	var resp tc.CacheGroupPostDSRespResponse
+	reqInf, err := to.post(uri, opts, req, &resp)
 	return resp, reqInf, err
 }

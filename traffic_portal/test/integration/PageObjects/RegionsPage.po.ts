@@ -18,9 +18,26 @@
  */
 import { browser, by, element } from 'protractor';
 
-import { config, randomize } from '../config';
+import { randomize } from '../config';
 import { BasePage } from './BasePage.po';
 import { SideNavigationPage } from './SideNavigationPage.po';
+
+interface CreateRegion {
+    Division: string;
+    Name: string;
+    validationMessage?: string;
+}
+
+interface UpdateRegion {
+    description: string;
+    Division: string;
+    validationMessage?: string;
+}
+
+interface DeleteRegion {
+    Name: string;
+    validationMessage?: string;
+}
 
 export class RegionsPage extends BasePage {
     private btnCreateNewRegions = element(by.name('createRegionButton'));
@@ -29,8 +46,8 @@ export class RegionsPage extends BasePage {
     private txtDivision = element(by.name('division'));
     private btnDelete = element(by.xpath("//button[text()='Delete']"));
     private txtConfirmName = element(by.name('confirmWithNameInput'));
-    private readonly config = config;
     private randomize = randomize;
+
     async OpenRegionsPage(){
         let snp = new SideNavigationPage();
         await snp.NavigateToRegionsPage();
@@ -40,7 +57,7 @@ export class RegionsPage extends BasePage {
         await snp.ClickTopologyMenu();
     }
 
-    async CreateRegions(regions){
+    async CreateRegions(regions: CreateRegion): Promise<boolean> {
         let result = false;
         let basePage = new BasePage();
         let snp = new SideNavigationPage();
@@ -58,23 +75,21 @@ export class RegionsPage extends BasePage {
         })
         return result;
     }
-    async SearchRegions(nameRegions:string){
+
+    public async SearchRegions(nameRegions:string): Promise<boolean> {
         let name = nameRegions + this.randomize;
-        let result = false;
         let snp = new SideNavigationPage();
         await snp.NavigateToRegionsPage();
         await this.txtSearch.clear();
         await this.txtSearch.sendKeys(name);
         if (await browser.isElementPresent(element(by.xpath("//td[@data-search='^" + name + "$']"))) == true) {
             await element(by.xpath("//td[@data-search='^" + name + "$']")).click();
-            result = true;
-        } else {
-            result = undefined;
+            return true;
         }
-        return result;
+        return false;
     }
-    async UpdateRegions(regions){
-        let result = false;
+
+    public async UpdateRegions(regions: UpdateRegion): Promise<boolean | undefined> {
         let basePage = new BasePage();
         switch(regions.description){
             case "update Region's Division":
@@ -82,19 +97,12 @@ export class RegionsPage extends BasePage {
                 await basePage.ClickUpdate();
                 break;
             default:
-                result = undefined;
+                return undefined;
         }
-        result = await basePage.GetOutputMessage().then(function (value) {
-            if (regions.validationMessage == value) {
-              return true;
-            } else {
-              return false;
-            }
-          })
-          return result;
-
+        return await basePage.GetOutputMessage().then(value => regions.validationMessage === value);
     }
-    async DeleteRegions(regions){
+
+    public async DeleteRegions(regions: DeleteRegion): Promise<boolean> {
         let name = regions.Name + this.randomize;
         let result = false;
         let basePage = new BasePage();

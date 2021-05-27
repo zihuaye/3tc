@@ -24,7 +24,6 @@ import (
 	"net/http"
 
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/api"
-	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/riaksvc"
 )
 
 func Vault(w http.ResponseWriter, r *http.Request) {
@@ -35,9 +34,9 @@ func Vault(w http.ResponseWriter, r *http.Request) {
 	}
 	defer inf.Close()
 
-	pingResp, err := riaksvc.Ping(inf.Tx.Tx, inf.Config.RiakAuthOptions, inf.Config.RiakPort)
+	pingResp, err := inf.Vault.Ping(inf.Tx.Tx, r.Context())
 	if err != nil {
-		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("error pinging Riak: "+err.Error()))
+		api.HandleErr(w, r, inf.Tx.Tx, http.StatusInternalServerError, nil, errors.New("error pinging Traffic Vault: "+err.Error()))
 		return
 	}
 	api.WriteResp(w, r, pingResp)

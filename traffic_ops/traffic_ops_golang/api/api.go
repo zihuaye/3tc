@@ -45,6 +45,8 @@ import (
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/config"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/tenant"
 	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/tocookie"
+	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/trafficvault"
+	"github.com/apache/trafficcontrol/traffic_ops/traffic_ops_golang/trafficvault/backends/disabled"
 
 	influx "github.com/influxdata/influxdb/client/v2"
 	"github.com/jmoiron/sqlx"
@@ -71,10 +73,12 @@ const ResourceModifiedError = errorConstant("resource was modified since the tim
 
 // Common context.Context value keys.
 const (
-	DBContextKey      = "db"
-	ConfigContextKey  = "context"
-	ReqIDContextKey   = "reqid"
-	APIRespWrittenKey = "respwritten"
+	DBContextKey           = "db"
+	ConfigContextKey       = "context"
+	ReqIDContextKey        = "reqid"
+	APIRespWrittenKey      = "respwritten"
+	PathParamsKey          = "pathParams"
+	TrafficVaultContextKey = "tv"
 )
 
 const influxServersQuery = `
@@ -488,6 +492,8 @@ type APIInfo struct {
 	ReqID     uint64
 	Version   *Version
 	Tx        *sqlx.Tx
+	CancelTx  context.CancelFunc
+	Vault     trafficvault.TrafficVault
 	Config    *config.Config
 	request   *http.Request
 }
@@ -530,6 +536,10 @@ func NewInfo(r *http.Request, requiredParams []string, intParamNames []string) (
 	if err != nil {
 		return &APIInfo{Tx: &sqlx.Tx{}}, errors.New("getting config: " + err.Error()), nil, http.StatusInternalServerError
 	}
+	tv, err := GetTrafficVault(r.Context())
+	if err != nil {
+		return &APIInfo{Tx: &sqlx.Tx{}}, errors.New("getting TrafficVault: " + err.Error()), nil, http.StatusInternalServerError
+	}
 	reqID, err := getReqID(r.Context())
 	if err != nil {
 		return &APIInfo{Tx: &sqlx.Tx{}}, errors.New("getting reqID: " + err.Error()), nil, http.StatusInternalServerError
@@ -544,10 +554,10 @@ func NewInfo(r *http.Request, requiredParams []string, intParamNames []string) (
 	if userErr != nil || sysErr != nil {
 		return &APIInfo{Tx: &sqlx.Tx{}}, userErr, sysErr, errCode
 	}
-	dbCtx, _ := context.WithTimeout(r.Context(), time.Duration(cfg.DBQueryTimeoutSeconds)*time.Second) //only place we could call cancel here is in APIInfo.Close(), which already will rollback the transaction (which is all cancel will do.)
-	tx, err := db.BeginTxx(dbCtx, nil)                                                                 // must be last, MUST not return an error if this succeeds, without closing the tx
+	dbCtx, cancelTx := context.WithTimeout(r.Context(), time.Duration(cfg.DBQueryTimeoutSeconds)*time.Second) //only place we could call cancel here is in APIInfo.Close(), which already will rollback the transaction (which is all cancel will do.)
+	tx, err := db.BeginTxx(dbCtx, nil)                                                                        // must be last, MUST not return an error if this succeeds, without closing the tx
 	if err != nil {
-		return &APIInfo{Tx: &sqlx.Tx{}}, userErr, errors.New("could not begin transaction: " + err.Error()), http.StatusInternalServerError
+		return &APIInfo{Tx: &sqlx.Tx{}, CancelTx: cancelTx}, userErr, errors.New("could not begin transaction: " + err.Error()), http.StatusInternalServerError
 	}
 	return &APIInfo{
 		Config:    cfg,
@@ -557,6 +567,8 @@ func NewInfo(r *http.Request, requiredParams []string, intParamNames []string) (
 		IntParams: intParams,
 		User:      user,
 		Tx:        tx,
+		CancelTx:  cancelTx,
+		Vault:     tv,
 		request:   r,
 	}, nil, nil, http.StatusOK
 }
@@ -644,6 +656,7 @@ func (inf APIInfo) CheckPrecondition(query string, args ...interface{}) (int, er
 //
 // Close will commit the transaction, if it hasn't been rolled back.
 func (inf *APIInfo) Close() {
+	defer inf.CancelTx()
 	if err := inf.Tx.Tx.Commit(); err != nil && err != sql.ErrTxDone {
 		log.Errorln("committing transaction: " + err.Error())
 	}
@@ -818,6 +831,20 @@ func GetConfig(ctx context.Context) (*config.Config, error) {
 		}
 	}
 	return nil, errors.New("No config found in Context")
+}
+
+func GetTrafficVault(ctx context.Context) (trafficvault.TrafficVault, error) {
+	val := ctx.Value(TrafficVaultContextKey)
+	if val != nil {
+		switch v := val.(type) {
+		case trafficvault.TrafficVault:
+			return v, nil
+		default:
+			return nil, fmt.Errorf("TrafficVault found with bad type: %T", v)
+		}
+	}
+	// this return should never be reached because a non-nil TrafficVault should always be included in the request context
+	return &disabled.Disabled{}, errors.New("no Traffic Vault found in Context")
 }
 
 func getReqID(ctx context.Context) (uint64, error) {

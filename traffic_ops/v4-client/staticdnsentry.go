@@ -1,3 +1,5 @@
+package client
+
 /*
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,137 +15,114 @@
    limitations under the License.
 */
 
-package client
-
 import (
 	"errors"
-	"fmt"
-	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/traffic_ops/toclientlib"
 )
 
-const (
-	APIStaticDNSEntries = "/staticdnsentries"
-)
+// apiStaticDNSEntries is the full path to the /staticdnsentries API
+// endpoint.
+const apiStaticDNSEntries = "/staticdnsentries"
 
 func staticDNSEntryIDs(to *Session, sdns *tc.StaticDNSEntry) error {
+	if sdns == nil {
+		return errors.New("cannot resolve names to IDs for nil StaticDNSEntry")
+	}
 	if sdns.CacheGroupID == 0 && sdns.CacheGroupName != "" {
-		p, _, err := to.GetCacheGroupNullableByNameWithHdr(sdns.CacheGroupName, nil)
+		opts := NewRequestOptions()
+		opts.QueryParameters.Set("name", sdns.CacheGroupName)
+		p, _, err := to.GetCacheGroups(opts)
 		if err != nil {
 			return err
 		}
-		if len(p) == 0 {
+		if len(p.Response) == 0 {
 			return errors.New("no CacheGroup named " + sdns.CacheGroupName)
 		}
-		if p[0].ID == nil {
+		if p.Response[0].ID == nil {
 			return errors.New("CacheGroup named " + sdns.CacheGroupName + " has a nil ID")
 		}
-		sdns.CacheGroupID = *p[0].ID
+		sdns.CacheGroupID = *p.Response[0].ID
 	}
 
 	if sdns.DeliveryServiceID == 0 && sdns.DeliveryService != "" {
-		dses, _, err := to.GetDeliveryServiceByXMLIDNullableWithHdr(sdns.DeliveryService, nil)
+		opts := NewRequestOptions()
+		opts.QueryParameters.Set("xmlId", sdns.DeliveryService)
+		dses, _, err := to.GetDeliveryServices(opts)
 		if err != nil {
 			return err
 		}
-		if len(dses) == 0 {
+		if len(dses.Response) == 0 {
 			return errors.New("no deliveryservice with name " + sdns.DeliveryService)
 		}
-		if dses[0].ID == nil {
+		if dses.Response[0].ID == nil {
 			return errors.New("Deliveryservice with name " + sdns.DeliveryService + " has a nil ID")
 		}
-		sdns.DeliveryServiceID = *dses[0].ID
+		sdns.DeliveryServiceID = *dses.Response[0].ID
 	}
 
 	if sdns.TypeID == 0 && sdns.Type != "" {
-		types, _, err := to.GetTypeByNameWithHdr(sdns.Type, nil)
+		opts := NewRequestOptions()
+		opts.QueryParameters.Set("name", sdns.Type)
+		types, _, err := to.GetTypes(opts)
 		if err != nil {
 			return err
 		}
-		if len(types) == 0 {
+		if len(types.Response) == 0 {
 			return errors.New("no type with name " + sdns.Type)
 		}
-		sdns.TypeID = types[0].ID
+		sdns.TypeID = types.Response[0].ID
 	}
 
 	return nil
 }
 
-// CreateStaticDNSEntry creates a Static DNS Entry.
-func (to *Session) CreateStaticDNSEntry(sdns tc.StaticDNSEntry) (tc.Alerts, toclientlib.ReqInf, error) {
+// CreateStaticDNSEntry creates the given Static DNS Entry.
+func (to *Session) CreateStaticDNSEntry(sdns tc.StaticDNSEntry, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
 	// fill in missing IDs from names
 	var alerts tc.Alerts
 	err := staticDNSEntryIDs(to, &sdns)
 	if err != nil {
 		return alerts, toclientlib.ReqInf{CacheHitStatus: toclientlib.CacheHitStatusMiss}, err
 	}
-	reqInf, err := to.post(APIStaticDNSEntries, sdns, nil, &alerts)
+	reqInf, err := to.post(apiStaticDNSEntries, opts, sdns, &alerts)
 	return alerts, reqInf, err
 }
 
-func (to *Session) UpdateStaticDNSEntryByIDWithHdr(id int, sdns tc.StaticDNSEntry, header http.Header) (tc.Alerts, toclientlib.ReqInf, int, error) {
+// UpdateStaticDNSEntry replaces the Static DNS Entry identified by 'id' with
+// the one provided.
+func (to *Session) UpdateStaticDNSEntry(id int, sdns tc.StaticDNSEntry, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
 	// fill in missing IDs from names
 	var alerts tc.Alerts
 	err := staticDNSEntryIDs(to, &sdns)
 	if err != nil {
-		return alerts, toclientlib.ReqInf{CacheHitStatus: toclientlib.CacheHitStatusMiss}, 0, err
+		return alerts, toclientlib.ReqInf{CacheHitStatus: toclientlib.CacheHitStatusMiss}, err
 	}
-	route := fmt.Sprintf("%s?id=%d", APIStaticDNSEntries, id)
-	reqInf, err := to.put(route, sdns, header, &alerts)
-	return tc.Alerts{}, reqInf, reqInf.StatusCode, err
+	if opts.QueryParameters == nil {
+		opts.QueryParameters = url.Values{}
+	}
+	opts.QueryParameters.Set("id", strconv.Itoa(id))
+	reqInf, err := to.put(apiStaticDNSEntries, opts, sdns, &alerts)
+	return alerts, reqInf, err
 }
 
-// UpdateStaticDNSEntryByID updates a Static DNS Entry by ID.
-// Deprecated: UpdateStaticDNSEntryByID will be removed in 6.0. Use UpdateStaticDNSEntryByIDWithHdr.
-func (to *Session) UpdateStaticDNSEntryByID(id int, sdns tc.StaticDNSEntry) (tc.Alerts, toclientlib.ReqInf, int, error) {
-	return to.UpdateStaticDNSEntryByIDWithHdr(id, sdns, nil)
-}
-
-func (to *Session) GetStaticDNSEntriesWithHdr(header http.Header) ([]tc.StaticDNSEntry, toclientlib.ReqInf, error) {
+// GetStaticDNSEntries retrieves all Static DNS Entries stored in Traffic Ops.
+func (to *Session) GetStaticDNSEntries(opts RequestOptions) (tc.StaticDNSEntriesResponse, toclientlib.ReqInf, error) {
 	var data tc.StaticDNSEntriesResponse
-	reqInf, err := to.get(APIStaticDNSEntries, header, &data)
-	return data.Response, reqInf, err
+	reqInf, err := to.get(apiStaticDNSEntries, opts, &data)
+	return data, reqInf, err
 }
 
-// GetStaticDNSEntries returns a list of Static DNS Entrys.
-// Deprecated: GetStaticDNSEntries will be removed in 6.0. Use GetStaticDNSEntriesWithHdr.
-func (to *Session) GetStaticDNSEntries() ([]tc.StaticDNSEntry, toclientlib.ReqInf, error) {
-	return to.GetStaticDNSEntriesWithHdr(nil)
-}
-
-func (to *Session) GetStaticDNSEntryByIDWithHdr(id int, header http.Header) ([]tc.StaticDNSEntry, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?id=%d", APIStaticDNSEntries, id)
-	var data tc.StaticDNSEntriesResponse
-	reqInf, err := to.get(route, header, &data)
-	return data.Response, reqInf, err
-}
-
-// GetStaticDNSEntryByID GETs a Static DNS Entry by the Static DNS Entry's ID.
-// Deprecated: GetStaticDNSEntryByID will be removed in 6.0. Use GetStaticDNSEntryByIDWithHdr.
-func (to *Session) GetStaticDNSEntryByID(id int) ([]tc.StaticDNSEntry, toclientlib.ReqInf, error) {
-	return to.GetStaticDNSEntryByIDWithHdr(id, nil)
-}
-
-func (to *Session) GetStaticDNSEntriesByHostWithHdr(host string, header http.Header) ([]tc.StaticDNSEntry, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?host=%s", APIStaticDNSEntries, url.QueryEscape(host))
-	var data tc.StaticDNSEntriesResponse
-	reqInf, err := to.get(route, header, &data)
-	return data.Response, reqInf, err
-}
-
-// GetStaticDNSEntriesByHost GETs a Static DNS Entry by the Static DNS Entry's host.
-// Deprecated: GetStaticDNSEntriesByHost will be removed in 6.0. Use GetStaticDNSEntriesByHostWithHdr.
-func (to *Session) GetStaticDNSEntriesByHost(host string) ([]tc.StaticDNSEntry, toclientlib.ReqInf, error) {
-	return to.GetStaticDNSEntriesByHostWithHdr(host, nil)
-}
-
-// DeleteStaticDNSEntryByID DELETEs a Static DNS Entry by ID.
-func (to *Session) DeleteStaticDNSEntryByID(id int) (tc.Alerts, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?id=%d", APIStaticDNSEntries, id)
+// DeleteStaticDNSEntry deletes the Static DNS Entry with the given ID.
+func (to *Session) DeleteStaticDNSEntry(id int, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
+	if opts.QueryParameters == nil {
+		opts.QueryParameters = url.Values{}
+	}
+	opts.QueryParameters.Set("id", strconv.Itoa(id))
 	var alerts tc.Alerts
-	reqInf, err := to.del(route, nil, &alerts)
+	reqInf, err := to.del(apiStaticDNSEntries, opts, &alerts)
 	return alerts, reqInf, err
 }

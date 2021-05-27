@@ -18,9 +18,18 @@
  */
 import { by, element } from 'protractor';
 
-import { config, randomize } from '../config';
+import { randomize } from '../config';
 import { BasePage } from './BasePage.po';
 import {SideNavigationPage} from './SideNavigationPage.po';
+
+interface Tenant {
+  ParentTenant: string;
+  Name: string;
+  Active: string;
+  existsMessage?: string;
+  validationMessage?: string;
+}
+
 export class TenantsPage extends BasePage {
 
     private btnCreateNewTenant = element(by.xpath("//button[@title='Create New Tenant']"));
@@ -28,10 +37,8 @@ export class TenantsPage extends BasePage {
     private txtActive = element(by.name('active'));
     private txtParentTenant = element(by.name('parentId'));
     private txtSearch = element(by.id('tenantsTable_filter')).element(by.css('label input'));
-    private mnuTenantTable = element(by.id('tenantsTable'));
     private btnDelete = element(by.buttonText('Delete'));
     private txtConfirmTenantName = element(by.name('confirmWithNameInput'));
-    private readonly config = config;
     private randomize = randomize;
 
     async OpenTenantPage(){
@@ -39,7 +46,8 @@ export class TenantsPage extends BasePage {
       await snp.ClickUserAdminMenu();
       await snp.NavigateToTenantsPage();
     }
-    async CreateTenant(tenant){
+
+    public async CreateTenant(tenant: Tenant): Promise<boolean> {
         let result = false;
         let basePage = new BasePage();
         let snp = new SideNavigationPage();
@@ -63,7 +71,6 @@ export class TenantsPage extends BasePage {
         return result;
     }
     async SearchTenant(name:string){
-        let result = false;
         let snp = new SideNavigationPage();
         await snp.NavigateToTenantsPage();
         await this.txtSearch.clear();

@@ -13,19 +13,117 @@
 .. limitations under the License.
 ..
 
+.. _traffic_vault_admin:
+
 ****************************
 Traffic Vault Administration
 ****************************
-Installing Traffic Vault
-========================
+
+Currently, the supported backends for Traffic Vault are PostgreSQL and Riak, but Riak support is deprecated and may be removed in a future release. More backends may be supported in the future.
+
+.. _traffic_vault_postgresql_backend:
+
+PostgreSQL
+==========
+
+In order to use the PostgreSQL backend for Traffic Vault, you will need to set the ``traffic_vault_backend`` option to ``"postgres"`` and include the necessary configuration in the ``traffic_vault_config`` section in :file:`cdn.conf`. The ``traffic_vault_config`` options for the PostgreSQL backend are as follows:
+
+:dbname:                    The name of the database to use
+:hostname:                  The hostname of the database server to connect to
+:password:                  The password to use when connecting to the database
+:port:                      The port number that the database listens for new connections on (NOTE: the PostgreSQL default is 5432)
+:user:                      The username to use when connecting to the database
+:aes_key_location:          The location on-disk for a base64-encoded AES key used to encrypt secrets before they are stored. It is highly recommended to backup this key to a safe, secure storage location, because if it is lost, you will lose access to all your Traffic Vault data. Either this option or ``hashicorp_vault`` must be used.
+:hashicorp_vault:           This group of configuration options is for fetching the base64-encoded AES key from `HashiCorp Vault <https://www.vaultproject.io/>`_. This uses the `AppRole authentication method <https://learn.hashicorp.com/tutorials/vault/approle>`_.
+
+	:address:     The address of the HashiCorp Vault server, e.g. http://localhost:8200
+	:role_id:     The RoleID of the AppRole.
+	:secret_id:   The SecretID issued against the AppRole.
+	:secret_path: The URI path where the secret AES key is located, e.g. /v1/secret/data/trafficvault. The secret should be stored using the `KV Secrets Engine <https://www.vaultproject.io/docs/secrets/kv>`_ with a key of ``traffic_vault_key`` and value of a base64-encoded AES key, e.g. ``traffic_vault_key='WoFc86CisM1aXo8D5GvDnq2h9kjULuIP4upaqX15SRc='``.
+	:login_path:  Optional. The URI path used to login with the AppRole method. Default: /v1/auth/approle/login
+	:timeout_sec: Optional. The timeout (in seconds) for requests. Default: 30
+	:insecure:    Optional. Disable server certificate verification. This should only be used for testing purposes. Default: false
+
+:conn_max_lifetime_seconds: Optional. The maximum amount of time (in seconds) a connection may be reused. If negative, connections are not closed due to a connection's age. If 0 or unset, the default of 60 is used.
+:max_connections:           Optional. The maximum number of open connections to the database. Default: 0 (unlimited)
+:max_idle_connections:      Optional. The maximum number of connections in the idle connection pool. If negative, no idle connections are retained. If 0 or unset, the default of 30 is used.
+:query_timeout_seconds:     Optional. The duration (in seconds) after which database queries will time out and be cancelled. Default: 30
+:ssl:                       Optional. Whether or not to use SSL to connect to the database. Default: false
+
+Example cdn.conf snippet:
+-------------------------
+
+.. code-block:: json
+
+	{
+		"traffic_ops_golang": {
+			"traffic_vault_backend": "postgres",
+			"traffic_vault_config": {
+				"dbname": "tv_development",
+				"hostname": "localhost",
+				"user": "traffic_vault",
+				"password": "twelve",
+				"port": 5432,
+				"ssl": false,
+				"conn_max_lifetime_seconds": 60,
+				"max_connections": 500,
+				"max_idle_connections": 30,
+				"query_timeout_seconds": 10,
+				"aes_key_location": "/opt/traffic_ops/app/conf/tv.key"
+			}
+		}
+	}
+
+Administration of the PostgreSQL database for Traffic Vault
+-----------------------------------------------------------
+
+Similar to administering the Traffic Ops database, the :ref:`admin <database-management>` tool should be used for administering the PostgreSQL Traffic Vault backend.
+
+.. _traffic_vault_riak_backend:
+
+Riak (deprecated)
+=================
+
+.. deprecated:: ATCv6
+	The Riak Traffic Vault backend is deprecated and support may be removed in a future release. It is highly recommended to use the PostgreSQL Traffic Vault backend instead.
+
+In order to use the Riak backend for Traffic Vault, you will need to set the ``traffic_vault_backend`` option to ``"riak"`` and include the necessary configuration in the ``traffic_vault_config`` section in :file:`cdn.conf`. The ``traffic_vault_config`` options for the Riak backend are as follows:
+
+:password:      The password to use when authenticating with Riak
+:user:          The username to use when authenticating with Riak
+:port:          The Riak protobuf port to connect to. Default: 8087
+:tlsConfig:     Optional. Certain TLS options from `the tls.Config struct options <https://golang.org/pkg/crypto/tls/#Config>`_ may be included here, such as ``insecureSkipVerify: true`` to disable certificate validation in order to use self-signed certificates for test/development purposes.
+:MaxTLSVersion: Optional. This is the highest TLS version that Traffic Ops is allowed to use to connect to Traffic Vault. Valid values are "1.0", "1.1", "1.2", and "1.3". The default is "1.1".
+
+.. note:: Enabling TLS 1.1 in Riak itself is required for Traffic Ops to communicate with Riak. See :ref:`Enabling TLS 1.1 <tv-admin-enable-tlsv1.1>` for details.
+
+Example cdn.conf snippet:
+-------------------------
+
+.. code-block:: json
+
+	{
+		"traffic_ops_golang": {
+			"traffic_vault_backend": "riak",
+			"traffic_vault_config": {
+				"user": "riakuser",
+				"password": "password",
+				"MaxTLSVersion": "1.1",
+				"port": 8087
+			}
+		}
+	}
+
+Installing the Riak backend for Traffic Vault
+---------------------------------------------
 In order to successfully store private keys you will need to install Riak. The latest version of Riak can be downloaded on `the Riak website <https://docs.riak.com/riak/latest/downloads/>`_. The installation instructions for Riak can be found `here <https://docs.riak.com/riak/kv/latest/setup/installing/index.html>`__. Based on experience, version 2.0.5 of Riak is recommended, but the latest version should suffice.
 
-Configuring Traffic Vault
-=========================
-The following steps were taken to configure Riak in Comcast production environments.
+Configuring Riak
+----------------
+Follow these steps to configure Riak in a production environment.
 
 Self Signed Certificate configuration
--------------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 .. note:: Self-signed certificates are not recommended for production use. Intended for development or learning purposes only. Modify subject as necessary.
 
 .. code-block:: shell
@@ -47,7 +145,7 @@ Self Signed Certificate configuration
 
 
 Riak Configuration File
------------------------
+^^^^^^^^^^^^^^^^^^^^^^^
 The following steps need to be performed on each Riak server in the cluster:
 
 #. Log into Riak server as root
@@ -74,7 +172,7 @@ Enabling TLS 1.1 (required)
 #. Consult the `Riak documentation <https://docs.riak.com/riak/kv/latest/setup/installing/verify/>`_ for instructions on how to verify the installed service
 
 ``riak-admin`` Configuration
-----------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ``riak-admin`` is a command line utility used to configure Riak that needs to be run as root on a server in the Riak cluster.
 
 .. seealso:: `The riak-admin documentation <https://docs.riak.com/riak/kv/latest/using/admin/riak-admin/>`_
@@ -89,9 +187,8 @@ Enabling TLS 1.1 (required)
 	riak-admin security add-group admins
 	riak-admin security add-group keysusers
 
-	# User name and password should be stored in
-	# /opt/traffic_ops/app/conf/<environment>/riak.conf on the Traffic Ops
-	# server
+	# User name and password should be stored in the traffic_vault_config section in
+	# /opt/traffic_ops/app/conf/cdn.conf on the Traffic Ops server (with traffic_vault_backend = riak)
 	# In this example, we assume the usernames 'admin' and 'riakuser' with
 	# respective passwords stored in the ADMIN_PASSWORD and RIAK_USER_PASSWORD
 	# environment variables
@@ -113,15 +210,15 @@ Enabling TLS 1.1 (required)
 
 
 Traffic Ops Configuration
--------------------------
-Before a fully set-up Traffic Vault instance may be used, it must be added as a server to Traffic Ops. The easiest way to accomplish this is via Traffic Portal at :menuselection:`Configure --> Servers`, though :ref:`to-api-servers` may also be used by low-level tools and/or scripts. The Traffic Ops configuration file :file:`/opt/traffic_ops/app/conf/{environment}/riak.conf` for the appropriate environment must also be updated to reflect the correct username and password for accessing the Riak database.
+^^^^^^^^^^^^^^^^^^^^^^^^^
+Before a fully set-up Riak instance may be used as the Traffic Vault backend, it must be added as a server to Traffic Ops. The easiest way to accomplish this is via Traffic Portal at :menuselection:`Configure --> Servers`, though :ref:`to-api-servers` may also be used by low-level tools and/or scripts. The Traffic Ops configuration file :file:`/opt/traffic_ops/app/conf/cdn.conf` must be updated to set ``traffic_vault_backend`` to ``"riak"`` and the ``traffic_vault_config`` to include the correct username and password for accessing the Riak database.
 
 Configuring Riak Search
-=======================
-In order to more effectively support retrieval of SSL certificates by Traffic Router and :term:`ORT`, Traffic Vault uses `Riak search <https://docs.riak.com/riak/kv/latest/using/reference/search/>`_. Riak Search uses `Apache Solr <https://lucene.apache.org/solr>`_ for indexing and searching of records. This section explains how to enable, configure, and validate Riak Search.
+-----------------------
+In order to more effectively support retrieval of SSL certificates by Traffic Router and :term:`ORT`, the Riak backend for Traffic Vault uses `Riak search <https://docs.riak.com/riak/kv/latest/using/reference/search/>`_. Riak Search uses `Apache Solr <https://lucene.apache.org/solr>`_ for indexing and searching of records. This section explains how to enable, configure, and validate Riak Search.
 
 Riak Configuration
-------------------
+^^^^^^^^^^^^^^^^^^
 On each Traffic Vault server follow these steps.
 
 #. If Java (JDKv1.8+) is not already installed on your Riak server, install Java

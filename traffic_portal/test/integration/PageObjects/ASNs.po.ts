@@ -18,9 +18,27 @@
  */
 import { browser, by, element } from 'protractor'
 
-import { config, twoNumberRandomize } from '../config';
+import { twoNumberRandomize } from '../config';
 import { BasePage } from './BasePage.po';
 import { SideNavigationPage } from './SideNavigationPage.po';
+
+interface CreateASN {
+    ASNs: string;
+    CacheGroup: string;
+    validationMessage?: string;
+}
+
+interface DeleteASN {
+    ASNs: string;
+    validationMessage?: string;
+}
+
+interface UpdateASN {
+    CacheGroup?: string;
+    description: string;
+    NewASNs?: string;
+    validationMessage?: string;
+}
 
 export class ASNsPage extends BasePage {
     private btnCreateNewASNs = element(by.xpath("//button[@title='Create ASN']"));
@@ -29,8 +47,6 @@ export class ASNsPage extends BasePage {
     private txtCacheGroup = element(by.name("cachegroup"))
     private btnDelete = element(by.xpath("//button[text()='Delete']"));
     private txtConfirmName = element(by.name('confirmWithNameInput'));
-    private config = config;
-    private twoNumberRandomize = twoNumberRandomize;
 
     async OpenASNsPage() {
         let snp = new SideNavigationPage();
@@ -40,48 +56,48 @@ export class ASNsPage extends BasePage {
         let snp = new SideNavigationPage();
         await snp.ClickTopologyMenu();
     }
-    async CreateASNs(asns) {
-        let result = false;
+
+    public async CreateASNs(asns: CreateASN): Promise<boolean> {
         let basePage = new BasePage();
         let snp = new SideNavigationPage();
         await snp.NavigateToASNsPage();
         await this.btnCreateNewASNs.click();
-        await this.txtASN.sendKeys(asns.ASNs + this.twoNumberRandomize);
+        await this.txtASN.sendKeys(asns.ASNs + twoNumberRandomize);
         await this.txtCacheGroup.sendKeys(asns.CacheGroup)
         await basePage.ClickCreate();
-        result = await basePage.GetOutputMessage().then(function (value) {
-            if (asns.validationMessage == value) {
-                return true;
-            } else {
-                return false;
-            }
-        })
-        return result;
+        return await basePage.GetOutputMessage().then(v => asns.validationMessage === v);
     }
-    async SearchASNs(nameASNs: string) {
-        let name = nameASNs + this.twoNumberRandomize;
-        let result = false;
+
+    public async SearchASNs(nameASNs: string): Promise<boolean> {
+        let name = nameASNs + twoNumberRandomize;
         let snp = new SideNavigationPage();
         await snp.NavigateToASNsPage();
         await this.txtSearch.clear();
         await this.txtSearch.sendKeys(name);
         if (await browser.isElementPresent(element(by.xpath("//td[@data-search='^" + name + "$']"))) == true) {
             await element(by.xpath("//td[@data-search='^" + name + "$']")).click();
-            result = true;
-        } else {
-            result = undefined;
+            return true;
         }
-        return result;
+        return false;
     }
-    async UpdateASNs(asns) {
+
+    public async UpdateASNs(asns: UpdateASN): Promise<boolean> {
         let result = false;
         let basePage = new BasePage();
         if(asns.description.includes("update cachegroup")){
+            // preserves old behavior, but with a better error message
+            if (!asns.CacheGroup) {
+                throw new Error("ASN update data indicated in the description that it was for updating cachegroup linking, but data included no CacheGroup");
+            }
             await this.txtCacheGroup.sendKeys(asns.CacheGroup);
             await basePage.ClickUpdate();
         }else if(asns.description.includes("update an ASN")){
+            // preserves old behavior, but with a better error message
+            if (!asns.NewASNs) {
+                throw new Error("ASN update data indicated in the description that it was NOT for updating cachegroup linking, but data included no NewASNs");
+            }
             await this,this.txtASN.clear();
-            await this.txtASN.sendKeys(asns.NewASNs + this.twoNumberRandomize);
+            await this.txtASN.sendKeys(asns.NewASNs + twoNumberRandomize);
             await basePage.ClickUpdate();
         }else{
             result = false;
@@ -95,8 +111,9 @@ export class ASNsPage extends BasePage {
         })
         return result;
     }
-    async DeleteASNs(asns){
-        let name = asns.ASNs + this.twoNumberRandomize;
+
+    public async DeleteASNs(asns: DeleteASN): Promise<boolean> {
+        let name = asns.ASNs + twoNumberRandomize;
         let result = false;
         let basePage = new BasePage();
         await this.btnDelete.click();

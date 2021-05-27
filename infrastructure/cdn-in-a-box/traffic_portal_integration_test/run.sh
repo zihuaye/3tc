@@ -23,6 +23,7 @@ do
 done
 
 source to-access.sh
+check-skips
 
 set-dns.sh
 insert-self-into-dns.sh
@@ -42,7 +43,7 @@ timeout_in_seconds=30
 start_time="$(date +%s)"
 date_in_seconds="$start_time"
 TP_URL="https://$TP_FQDN:$TP_PORT"
-until curl -sk "${TP_URL}/api/3.0/ping" || (( time - start_time >= timeout_in_seconds )); do
+until curl -sk "${TP_URL}/api/4.0/ping" || (( time - start_time >= timeout_in_seconds )); do
 	echo "waiting for Traffic Portal at '$TP_URL' fqdn '$TP_FQDN' host '$TP_HOST'"
 	time="$(date +%s)"
 	sleep 3;
@@ -52,7 +53,7 @@ if (( time - start_time >= timeout_in_seconds )); then
 	echo "Warning: Traffic Portal did not start after ${timeout_in_seconds} seconds.";
 fi;
 
-chrome_version="$(repoquery --installed --qf='%{version}' google-chrome-stable)"
+chrome_version="$(chromium-browser --version | grep -o '[0-9.]\+')"
 nohup webdriver-manager start --versions.chrome "$chrome_version" &
 
 selenium_port=4444
@@ -62,17 +63,18 @@ while ! curl -Lvsk "${selenium_fqdn}" 2>/dev/null >/dev/null; do
    sleep 1
 done
 
-jq "$(<<JQ_FILTERS cat
-	.baseUrl = "https://$TP_FQDN" |
-	.params.adminUser = "$TO_ADMIN_USER" |
-	.params.adminPassword = "$TO_ADMIN_PASSWORD"
+echo "$(jq "$(<<JQ_FILTERS cat
+	.params.baseUrl = "https://$TP_FQDN" |
+	.params.apiUrl = "https://$TP_FQDN/api/4.0" |
+	.params.login.username = "$TO_ADMIN_USER" |
+	.params.login.password = "$TO_ADMIN_PASSWORD"
 JQ_FILTERS
-)" conf.json > conf.json.tmp
-mv conf.json.tmp conf.json
+)" config.json)" > config.json
 
-cat conf.json
+cat config.json
 
-protractor conf.js
+./node_modules/.bin/tsc
+./node_modules/.bin/protractor ./GeneratedCode/config.js
 rc=$?
 
 cp /portaltestresults/* /junit/

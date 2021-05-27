@@ -1,3 +1,5 @@
+package client
+
 /*
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,24 +15,15 @@
    limitations under the License.
 */
 
-package client
-
 import (
-	"net/http"
-
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/traffic_ops/toclientlib"
 )
 
-func (to *Session) SteeringWithHdr(header http.Header) ([]tc.Steering, toclientlib.ReqInf, error) {
-	data := struct {
-		Response []tc.Steering `json:"response"`
-	}{}
-	reqInf, err := to.get(`/steering`, header, &data)
-	return data.Response, reqInf, err
-}
-
-// Deprecated: Steering will be removed in 6.0. Use SteeringWithHdr.
-func (to *Session) Steering() ([]tc.Steering, toclientlib.ReqInf, error) {
-	return to.SteeringWithHdr(nil)
+// Steering retrieves information about all (Tenant-accessible) Steering
+// Delivery Services stored in Traffic Ops assigned to the requesting user.
+func (to *Session) Steering(opts RequestOptions) (tc.SteeringResponse, toclientlib.ReqInf, error) {
+	var data tc.SteeringResponse
+	reqInf, err := to.get(`/steering`, opts, &data)
+	return data, reqInf, err
 }

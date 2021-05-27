@@ -18,13 +18,26 @@
  */
 import { browser, by, element} from 'protractor';
 
-import { config, randomize } from "../config";
+import { randomize } from "../config";
 import { BasePage } from './BasePage.po'
 
+/**
+ * LoginData is all the data needed to authenticate with Traffic Ops (and some
+ * that isn't).
+ */
 interface LoginData {
-    password: string;
-    username: string;
-    validationMessage: string;
+    /** Optional human-readable description for the login. This is not used.  */
+	description?: string;
+    /** The password used for authentication. */
+	password: string;
+    /** The username of the user as whom to authenticate. */
+	username: string;
+    /**
+     * If present, the content of this string is matched against the alert that
+     * is showing. A value of `undefined` indicates that there should be no
+     * alert.
+     */
+	validationMessage?: string;
 }
 
 export class LoginPage extends BasePage{
@@ -33,11 +46,10 @@ export class LoginPage extends BasePage{
     private btnLogin = element(by.name("loginSubmit"))
     private lnkResetPassword= element (by.xpath("//button[text()='Reset Password']"))
     private lblUserName = element(by.xpath("//span[@id='headerUsername']"))
-    private readonly config = config;
     private randomize = randomize;
 
 
-    async Login(login:LoginData){
+    async Login(login: LoginData){
         let result = false;
         const basePage = new BasePage();
         if(login.username === 'admin'){
@@ -51,17 +63,19 @@ export class LoginPage extends BasePage{
             await browser.actions().mouseMove(this.btnLogin).perform();
             await browser.actions().click(this.btnLogin).perform();
         }
-        if(await browser.getCurrentUrl() === browser.params.baseUrl + "#!/login"){
+        if(await browser.getCurrentUrl() === browser.params.baseUrl + "/#!/login"){
             result = await basePage.GetOutputMessage().then(value => value === login.validationMessage);
         }else{
             result = true;
         }
         return result;
     }
-    ClickResetPassword(){
+
+    public async ClickResetPassword(): Promise<void> {
         this.lnkResetPassword.click()
     }
-    async CheckUserName(login) {
+
+    public async CheckUserName(login: LoginData): Promise<boolean> {
         if(await this.lblUserName.getText() === 'admin' || await this.lblUserName.getText() === login.username+this.randomize){
             return true;
         }else{

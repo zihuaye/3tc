@@ -1,3 +1,5 @@
+package client
+
 /*
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,82 +15,50 @@
    limitations under the License.
 */
 
-package client
-
 import (
-	"fmt"
-	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/traffic_ops/toclientlib"
 )
 
-const (
-	APICoordinates = "/coordinates"
-)
+// apiCoordinates is the API version-relative path for the /coordinates API endpoint.
+const apiCoordinates = "/coordinates"
 
-// Create a Coordinate
-func (to *Session) CreateCoordinate(coordinate tc.Coordinate) (tc.Alerts, toclientlib.ReqInf, error) {
+// CreateCoordinate creates the given Coordinate.
+func (to *Session) CreateCoordinate(coordinate tc.Coordinate, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
 	var alerts tc.Alerts
-	reqInf, err := to.post(APICoordinates, coordinate, nil, &alerts)
+	reqInf, err := to.post(apiCoordinates, opts, coordinate, &alerts)
 	return alerts, reqInf, err
 }
 
-func (to *Session) UpdateCoordinateByIDWithHdr(id int, coordinate tc.Coordinate, header http.Header) (tc.Alerts, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?id=%d", APICoordinates, id)
+// UpdateCoordinate replaces the Coordinate with the given ID with the one
+// provided.
+func (to *Session) UpdateCoordinate(id int, coordinate tc.Coordinate, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
+	if opts.QueryParameters == nil {
+		opts.QueryParameters = url.Values{}
+	}
+	opts.QueryParameters.Set("id", strconv.Itoa(id))
 	var alerts tc.Alerts
-	reqInf, err := to.put(route, coordinate, header, &alerts)
+	reqInf, err := to.put(apiCoordinates, opts, coordinate, &alerts)
 	return alerts, reqInf, err
 }
 
-// Update a Coordinate by ID
-// Deprecated: UpdateCoordinateByID will be removed in 6.0. Use UpdateCoordinateByIDWithHdr.
-func (to *Session) UpdateCoordinateByID(id int, coordinate tc.Coordinate) (tc.Alerts, toclientlib.ReqInf, error) {
-	return to.UpdateCoordinateByIDWithHdr(id, coordinate, nil)
-}
-
-func (to *Session) GetCoordinatesWithHdr(header http.Header) ([]tc.Coordinate, toclientlib.ReqInf, error) {
+// GetCoordinates returns all Coordinates in Traffic Ops.
+func (to *Session) GetCoordinates(opts RequestOptions) (tc.CoordinatesResponse, toclientlib.ReqInf, error) {
 	var data tc.CoordinatesResponse
-	reqInf, err := to.get(APICoordinates, header, &data)
-	return data.Response, reqInf, err
+	reqInf, err := to.get(apiCoordinates, opts, &data)
+	return data, reqInf, err
 }
 
-// Returns a list of Coordinates
-// Deprecated: GetCoordinates will be removed in 6.0. Use GetCoordinatesWithHdr.
-func (to *Session) GetCoordinates() ([]tc.Coordinate, toclientlib.ReqInf, error) {
-	return to.GetCoordinatesWithHdr(nil)
-}
-
-func (to *Session) GetCoordinateByIDWithHdr(id int, header http.Header) ([]tc.Coordinate, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?id=%d", APICoordinates, id)
-	var data tc.CoordinatesResponse
-	reqInf, err := to.get(route, header, &data)
-	return data.Response, reqInf, err
-}
-
-// GET a Coordinate by the Coordinate id
-// Deprecated: GetCoordinateByID will be removed in 6.0. Use GetCoordinateByIDWithHdr.
-func (to *Session) GetCoordinateByID(id int) ([]tc.Coordinate, toclientlib.ReqInf, error) {
-	return to.GetCoordinateByIDWithHdr(id, nil)
-}
-
-// GET a Coordinate by the Coordinate name
-// Deprecated: GetCoordinateByName will be removed in 6.0. Use GetCoordinateByNameWithHdr.
-func (to *Session) GetCoordinateByName(name string) ([]tc.Coordinate, toclientlib.ReqInf, error) {
-	return to.GetCoordinateByNameWithHdr(name, nil)
-}
-
-func (to *Session) GetCoordinateByNameWithHdr(name string, header http.Header) ([]tc.Coordinate, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?name=%s", APICoordinates, name)
-	var data tc.CoordinatesResponse
-	reqInf, err := to.get(route, header, &data)
-	return data.Response, reqInf, err
-}
-
-// DELETE a Coordinate by ID
-func (to *Session) DeleteCoordinateByID(id int) (tc.Alerts, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?id=%d", APICoordinates, id)
+// DeleteCoordinate deletes the Coordinate with the given ID.
+func (to *Session) DeleteCoordinate(id int, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
+	if opts.QueryParameters == nil {
+		opts.QueryParameters = url.Values{}
+	}
+	opts.QueryParameters.Set("id", strconv.Itoa(id))
 	var alerts tc.Alerts
-	reqInf, err := to.del(route, nil, &alerts)
+	reqInf, err := to.del(apiCoordinates, opts, &alerts)
 	return alerts, reqInf, err
 }

@@ -17,12 +17,14 @@ package v4
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/apache/trafficcontrol/lib/go-rfc"
 	tc "github.com/apache/trafficcontrol/lib/go-tc"
+	client "github.com/apache/trafficcontrol/traffic_ops/v4-client"
 )
 
 const (
@@ -73,29 +75,52 @@ func TestDeliveryServiceRequests(t *testing.T) {
 	})
 }
 
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func UpdateTestDeliveryServiceRequestsWithHeaders(t *testing.T, header http.Header) {
+	if len(testData.DeliveryServiceRequests) < dsrGood+1 {
+		t.Fatalf("Need at least %d Delivery Service Requests to test updating them using headers", dsrGood+1)
+	}
 	// Retrieve the DeliveryServiceRequest by name so we can get the id for the Update
 	dsr := testData.DeliveryServiceRequests[dsrGood]
-	resetDS(dsr.DeliveryService)
-	if dsr.DeliveryService == nil || dsr.DeliveryService.XMLID == nil {
+	var ds *tc.DeliveryServiceV4
+	if dsr.ChangeType == tc.DSRChangeTypeDelete {
+		ds = dsr.Original
+	} else {
+		ds = dsr.Requested
+	}
+	resetDS(ds)
+	if ds == nil || ds.XMLID == nil {
 		t.Fatalf("the %dth DSR in the test data had no DeliveryService - or that DeliveryService had no XMLID", dsrGood)
 	}
-	resp, _, _, err := TOSession.GetDeliveryServiceRequestsByXMLID(*dsr.DeliveryService.XMLID, header)
+	opts := client.NewRequestOptions()
+	opts.Header = header
+	opts.QueryParameters.Set("xmlId", *ds.XMLID)
+	resp, _, err := TOSession.GetDeliveryServiceRequests(opts)
 	if err != nil {
-		t.Errorf("cannot GET DeliveryServiceRequest by name: %v - %v", dsr.DeliveryService.XMLID, err)
+		t.Errorf("cannot get Delivery Service Request by XMLID '%s': %v - alerts: %+v", *ds.XMLID, err, resp.Alerts)
 	}
-	if len(resp) == 0 {
+	if len(resp.Response) == 0 {
 		t.Fatal("Length of GET DeliveryServiceRequest is 0")
 	}
-	respDSR := resp[0]
+	respDSR := resp.Response[0]
 	if respDSR.ID == nil {
-		t.Fatalf("Got a DSR for XML ID '%s' that had a nil ID", *dsr.DeliveryService.XMLID)
+		t.Fatalf("Got a DSR for XML ID '%s' that had a nil ID", *ds.XMLID)
+	}
+	if respDSR.ChangeType != dsr.ChangeType {
+		t.Fatalf("remote representation of DSR with XMLID '%s' differed from stored data", *ds.XMLID)
+	}
+	var respDS *tc.DeliveryServiceV4
+	if respDSR.ChangeType == tc.DSRChangeTypeDelete {
+		respDS = respDSR.Original
+	} else {
+		respDS = respDSR.Requested
 	}
 
-	respDSR.DeliveryService.DisplayName = new(string)
-	*respDSR.DeliveryService.DisplayName = "new display name"
-
-	_, _, reqInf, err := TOSession.UpdateDeliveryServiceRequest(*respDSR.ID, respDSR, header)
+	respDS.DisplayName = new(string)
+	*respDS.DisplayName = "new display name"
+	opts.QueryParameters.Del("xmlId")
+	_, reqInf, err := TOSession.UpdateDeliveryServiceRequest(*respDSR.ID, respDSR, opts)
 	if err == nil {
 		t.Errorf("Expected error about precondition failed, but got none")
 	}
@@ -104,15 +129,31 @@ func UpdateTestDeliveryServiceRequestsWithHeaders(t *testing.T, header http.Head
 	}
 }
 
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func GetTestDeliveryServiceRequestsIMSAfterChange(t *testing.T, header http.Header) {
+	if len(testData.DeliveryServiceRequests) < dsrGood+1 {
+		t.Fatalf("Need at least %d Delivery Service Requests to test updating them with IMS", dsrGood+1)
+	}
 	dsr := testData.DeliveryServiceRequests[dsrGood]
-	resetDS(dsr.DeliveryService)
-	if dsr.DeliveryService == nil || dsr.DeliveryService.XMLID == nil {
+	var ds *tc.DeliveryServiceV4
+	if dsr.ChangeType == tc.DSRChangeTypeDelete {
+		ds = dsr.Original
+	} else {
+		ds = dsr.Requested
+	}
+
+	resetDS(ds)
+	if ds == nil || ds.XMLID == nil {
 		t.Fatalf("the %dth DSR in the test data had no DeliveryService - or that DeliveryService had no XMLID", dsrGood)
 	}
-	_, _, reqInf, err := TOSession.GetDeliveryServiceRequestsByXMLID(*dsr.DeliveryService.XMLID, header)
+
+	opts := client.NewRequestOptions()
+	opts.Header = header
+	opts.QueryParameters.Set("xmlId", *ds.XMLID)
+	resp, reqInf, err := TOSession.GetDeliveryServiceRequests(opts)
 	if err != nil {
-		t.Fatalf("Expected no error, but got %v", err.Error())
+		t.Fatalf("Expected no error, but got: %v - alerts: %+v", err, resp.Alerts)
 	}
 	if reqInf.StatusCode != http.StatusOK {
 		t.Fatalf("Expected 200 status code, got %v", reqInf.StatusCode)
@@ -120,42 +161,55 @@ func GetTestDeliveryServiceRequestsIMSAfterChange(t *testing.T, header http.Head
 	currentTime := time.Now().UTC()
 	currentTime = currentTime.Add(1 * time.Second)
 	timeStr := currentTime.Format(time.RFC1123)
-	header.Set(rfc.IfModifiedSince, timeStr)
-	_, _, reqInf, err = TOSession.GetDeliveryServiceRequestsByXMLID(*dsr.DeliveryService.XMLID, header)
+	opts.Header.Set(rfc.IfModifiedSince, timeStr)
+	resp, reqInf, err = TOSession.GetDeliveryServiceRequests(opts)
 	if err != nil {
-		t.Fatalf("Expected no error, but got %v", err.Error())
+		t.Fatalf("Expected no error, but got: %v - alerts: %+v", err, resp.Alerts)
 	}
 	if reqInf.StatusCode != http.StatusNotModified {
 		t.Fatalf("Expected 304 status code, got %v", reqInf.StatusCode)
 	}
 }
 
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func CreateTestDeliveryServiceRequests(t *testing.T) {
-	t.Log("CreateTestDeliveryServiceRequests")
-
+	if len(testData.DeliveryServiceRequests) < dsrGood+1 {
+		t.Fatalf("Need at least %d Delivery Service Requests to test creating Delivery Service Requests", dsrGood+1)
+	}
 	dsr := testData.DeliveryServiceRequests[dsrGood]
-	resetDS(dsr.DeliveryService)
-	respDSR, alerts, _, err := TOSession.CreateDeliveryServiceRequest(dsr, nil)
-	t.Log("Response: ", respDSR)
-	t.Logf("Alerts from creating a dsr: %+v", alerts)
+	resetDS(dsr.Original)
+	resetDS(dsr.Requested)
+	respDSR, _, err := TOSession.CreateDeliveryServiceRequest(dsr, client.RequestOptions{})
 	if err != nil {
-		t.Errorf("could not CREATE DeliveryServiceRequests: %v", err)
+		t.Errorf("could not create Delivery Service Requests: %v - alerts: %+v", err, respDSR.Alerts)
 	}
 
 }
 
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func TestDeliveryServiceRequestRequired(t *testing.T) {
 	WithObjs(t, []TCObj{CDNs, Types, Parameters, Tenants}, func() {
+		if len(testData.DeliveryServiceRequests) < dsrRequired+1 {
+			t.Fatalf("Need at least %d Delivery Service Requests to test creating a Delivery Service Request missing required fields", dsrRequired+1)
+		}
 		dsr := testData.DeliveryServiceRequests[dsrRequired]
-		resetDS(dsr.DeliveryService)
-		_, _, _, err := TOSession.CreateDeliveryServiceRequest(dsr, nil)
+		resetDS(dsr.Original)
+		resetDS(dsr.Requested)
+		_, _, err := TOSession.CreateDeliveryServiceRequest(dsr, client.RequestOptions{})
 		if err == nil {
 			t.Error("expected: validation error, actual: nil")
 		}
 	})
 }
 
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func TestDeliveryServiceRequestRules(t *testing.T) {
+	if len(testData.DeliveryServiceRequests) < dsrGood+1 {
+		t.Fatalf("Need at least %d Delivery Service Requests to test creating Delivery Service Request rules", dsrGood+1)
+	}
 	WithObjs(t, []TCObj{CDNs, Types, Parameters, Tenants}, func() {
 		routingName := strings.Repeat("X", 1) + "." + strings.Repeat("X", 48)
 		// Test the xmlId length and form
@@ -163,36 +217,54 @@ func TestDeliveryServiceRequestRules(t *testing.T) {
 		displayName := strings.Repeat("X", 49)
 
 		dsr := testData.DeliveryServiceRequests[dsrGood]
-		resetDS(dsr.DeliveryService)
-		if dsr.DeliveryService == nil {
+		var ds *tc.DeliveryServiceV4
+		if dsr.ChangeType == tc.DSRChangeTypeDelete {
+			ds = dsr.Original
+		} else {
+			ds = dsr.Requested
+		}
+		resetDS(ds)
+		if ds == nil {
 			t.Fatalf("the %dth DSR in the test data had no DeliveryService", dsrGood)
 		}
-		dsr.DeliveryService.DisplayName = &displayName
-		dsr.DeliveryService.RoutingName = &routingName
-		dsr.DeliveryService.XMLID = &XMLID
+		ds.DisplayName = &displayName
+		ds.RoutingName = &routingName
+		ds.XMLID = &XMLID
 
-		_, _, _, err := TOSession.CreateDeliveryServiceRequest(dsr, nil)
+		_, _, err := TOSession.CreateDeliveryServiceRequest(dsr, client.RequestOptions{})
 		if err == nil {
 			t.Error("expected: validation error, actual: nil")
 		}
 	})
 }
 
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func TestDeliveryServiceRequestTypeFields(t *testing.T) {
+	if len(testData.DeliveryServiceRequests) < dsrBadTenant+1 {
+		t.Fatalf("Need at least %d Delivery Service Requests to test creating a Delivery Service Request with missing fields for its Type", dsrBadTenant+1)
+	}
+
 	WithObjs(t, []TCObj{CDNs, Types, Tenants, Parameters}, func() {
 		dsr := testData.DeliveryServiceRequests[dsrBadTenant]
-		resetDS(dsr.DeliveryService)
-		if dsr.DeliveryService == nil || dsr.DeliveryService.XMLID == nil {
+		var ds *tc.DeliveryServiceV4
+		if dsr.ChangeType == tc.DSRChangeTypeDelete {
+			ds = dsr.Original
+		} else {
+			ds = dsr.Requested
+		}
+		resetDS(ds)
+		if ds == nil || ds.XMLID == nil {
 			t.Fatalf("the %dth DSR in the test data had no DeliveryService - or that DeliveryService had no XMLID", dsrBadTenant)
 		}
 
-		_, alerts, _, err := TOSession.CreateDeliveryServiceRequest(dsr, nil)
+		resp, _, err := TOSession.CreateDeliveryServiceRequest(dsr, client.RequestOptions{})
 		if err != nil {
-			t.Errorf("Error occurred %v", err)
+			t.Errorf("Unexpected error creating a Delivery Service Request: %v - alerts: %+v", err, resp.Alerts)
 		}
 
 		found := false
-		for _, alert := range alerts.Alerts {
+		for _, alert := range resp.Alerts.Alerts {
 			if alert.Level == tc.ErrorLevel.String() {
 				t.Errorf("Expected only succuss-level alerts creating a DSR, got error-level alert: %s", alert.Text)
 			} else if alert.Level == tc.SuccessLevel.String() {
@@ -205,65 +277,77 @@ func TestDeliveryServiceRequestTypeFields(t *testing.T) {
 			t.Errorf("Expected a success-level alert creating a DSR, got none")
 		}
 
-		dsrs, _, _, err := TOSession.GetDeliveryServiceRequestsByXMLID(*dsr.DeliveryService.XMLID, nil)
-		if len(dsrs) != 1 {
-			t.Fatalf("expected 1 deliveryservice_request with XMLID %s;  got %d", *dsr.DeliveryService.XMLID, len(dsrs))
+		opts := client.NewRequestOptions()
+		opts.QueryParameters.Set("xmlId", *ds.XMLID)
+		dsrs, _, err := TOSession.GetDeliveryServiceRequests(opts)
+		if err != nil {
+			t.Errorf("Unexpected error retriving Delivery Service Requests with XMLID '%s': %v - alerts: %+v", *ds.XMLID, err, dsrs.Alerts)
 		}
-		if dsrs[0].ID == nil {
-			t.Fatalf("got a DSR with a null ID by XMLID '%s'", *dsr.DeliveryService.XMLID)
+		if len(dsrs.Response) != 1 {
+			t.Fatalf("expected exactly one Deliveryservice Request with XMLID '%s'; got %d", *ds.XMLID, len(dsrs.Response))
+		}
+		if dsrs.Response[0].ID == nil {
+			t.Fatalf("got a DSR with a null ID by XMLID '%s'", *ds.XMLID)
 		}
 
-		alert, _, err := TOSession.DeleteDeliveryServiceRequest(*dsrs[0].ID)
+		alert, _, err := TOSession.DeleteDeliveryServiceRequest(*dsrs.Response[0].ID, client.RequestOptions{})
 		if err != nil {
-			t.Errorf("cannot DELETE DeliveryServiceRequest by id: %d - %v - %v", dsrs[0].ID, err, alert)
+			t.Errorf("cannot delete Delivery Service Request #%d: %v - alerts: %+v", dsrs.Response[0].ID, err, alert.Alerts)
 		}
 	})
 }
 
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func TestDeliveryServiceRequestBad(t *testing.T) {
+	if len(testData.DeliveryServiceRequests) < dsrDraft+1 {
+		t.Fatalf("Need at least %d Delivery Service Requests to test creating a non-draft Delivery Service Request", dsrDraft+1)
+	}
 	WithObjs(t, []TCObj{CDNs, Types, Parameters, Tenants}, func() {
 		// try to create non-draft/submitted
 		src := testData.DeliveryServiceRequests[dsrDraft]
-		resetDS(src.DeliveryService)
-		s, err := tc.RequestStatusFromString("pending")
-		if err != nil {
-			t.Errorf(`unable to create Status from string "pending"`)
-		}
-		src.Status = s
+		resetDS(src.Original)
+		resetDS(src.Requested)
+		src.Status = tc.RequestStatusPending
 
-		_, _, _, err = TOSession.CreateDeliveryServiceRequest(src, nil)
-		if err == nil {
+		if _, _, err := TOSession.CreateDeliveryServiceRequest(src, client.RequestOptions{}); err == nil {
 			t.Fatal("expected: validation error, actual: nil")
 		}
 	})
 }
 
-// TestDeliveryServiceRequestWorkflow tests that transitions of Status are
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func TestDeliveryServiceRequestWorkflow(t *testing.T) {
+	if len(testData.DeliveryServiceRequests) < dsrDraft+1 {
+		t.Fatalf("Need at least %d Delivery Service Requests to test Delivery Service Request workflow", dsrDraft+1)
+	}
+
 	WithObjs(t, []TCObj{CDNs, Types, Parameters, Tenants}, func() {
 		// test empty request table
-		dsrs, _, _, err := TOSession.GetDeliveryServiceRequests(nil)
+		dsrs, _, err := TOSession.GetDeliveryServiceRequests(client.RequestOptions{})
 		if err != nil {
-			t.Errorf("Error getting empty list of DeliveryServiceRequests %v++", err)
+			t.Errorf("Error getting empty list of Delivery Service Requests: %v - alerts: %+v", err, dsrs.Alerts)
 		}
-		if dsrs == nil {
-			t.Error("Expected empty DeliveryServiceRequest slice -- got nil")
+		if dsrs.Response == nil {
+			t.Error("Expected empty Delivery Service Request slice -- got nil")
 		}
-		if len(dsrs) != 0 {
-			t.Errorf("Expected no entries in DeliveryServiceRequest slice -- got %d", len(dsrs))
+		if len(dsrs.Response) != 0 {
+			t.Errorf("Expected no entries in Delivery Service Request slice, got %d", len(dsrs.Response))
 		}
 
 		// Create a draft request
 		src := testData.DeliveryServiceRequests[dsrDraft]
-		resetDS(src.DeliveryService)
+		resetDS(src.Original)
+		resetDS(src.Requested)
 
-		_, alerts, _, err := TOSession.CreateDeliveryServiceRequest(src, nil)
+		alerts, _, err := TOSession.CreateDeliveryServiceRequest(src, client.RequestOptions{})
 		if err != nil {
-			t.Errorf("Error creating DeliveryServiceRequest %v", err)
+			t.Errorf("Error creating Delivery Service Request: %v - alerts: %+v", err, alerts.Alerts)
 		}
 
 		found := false
-		for _, alert := range alerts.Alerts {
+		for _, alert := range alerts.Alerts.Alerts {
 			if alert.Level == tc.ErrorLevel.String() {
 				t.Errorf("Expected only succuss-level alerts creating a DSR, got error-level alert: %s", alert.Text)
 			} else if alert.Level == tc.SuccessLevel.String() {
@@ -277,39 +361,41 @@ func TestDeliveryServiceRequestWorkflow(t *testing.T) {
 		}
 
 		// Create a duplicate request -- should fail because xmlId is the same
-		_, alerts, _, err = TOSession.CreateDeliveryServiceRequest(src, nil)
+		alerts, _, err = TOSession.CreateDeliveryServiceRequest(src, client.RequestOptions{})
 		if err == nil {
 			t.Fatal("expected: validation error, actual: nil")
 		}
 
-		// TODO: the client needs to be fixed to return alerts on error. But
-		// that's gotten harder to do "semantically" now that most of the logic
-		// is shared between all API versions.
-		// found = false
-		// for _, alert := range alerts.Alerts {
-		// 	if alert.Level == tc.SuccessLevel.String() {
-		// 		t.Errorf("Expected only error-level alerts creating a duplicate DSR, got success-level alert: %s", alert.Text)
-		// 	} else if alert.Level == tc.ErrorLevel.String() {
-		// 		t.Logf("Got expected alert creating a duplicate DSR: %s", alert.Text)
-		// 		found = true
-		// 	}
-		// }
-		// if !found {
-		// 	t.Errorf("Expected an error-level alert creating a duplicate DSR, got none")
-		// }
+		found = false
+		for _, alert := range alerts.Alerts.Alerts {
+			if alert.Level == tc.SuccessLevel.String() {
+				t.Errorf("Expected only error-level alerts creating a duplicate DSR, got success-level alert: %s", alert.Text)
+			} else if alert.Level == tc.ErrorLevel.String() {
+				t.Logf("Got expected alert creating a duplicate DSR: %s", alert.Text)
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected an error-level alert creating a duplicate DSR, got none")
+		}
 
-		dsrs, _, _, err = TOSession.GetDeliveryServiceRequestsByXMLID(`test-transitions`, nil)
-		if len(dsrs) != 1 {
-			t.Errorf("Expected 1 deliveryServiceRequest -- got %d", len(dsrs))
-			if len(dsrs) == 0 {
+		opts := client.NewRequestOptions()
+		opts.QueryParameters.Set("xmlId", "test-transitions")
+		dsrs, _, err = TOSession.GetDeliveryServiceRequests(opts)
+		if err != nil {
+			t.Errorf("Unexpected error getting Delivery Service Requests with XMLID 'test-transitions': %v - alerts: %+v", err, dsrs.Alerts)
+		}
+		if len(dsrs.Response) != 1 {
+			t.Errorf("Expected exactly one Delivery Service Request with XMLID 'test-transitions', got: %d", len(dsrs.Response))
+			if len(dsrs.Response) == 0 {
 				t.Fatal("Cannot proceed")
 			}
 		}
 
-		alerts, dsr := updateDeliveryServiceRequestStatus(t, dsrs[0], "submitted", nil)
+		alerts = updateDeliveryServiceRequestStatus(t, dsrs.Response[0], "submitted", nil)
 
 		found = false
-		for _, alert := range alerts.Alerts {
+		for _, alert := range alerts.Alerts.Alerts {
 			if alert.Level == tc.ErrorLevel.String() {
 				t.Errorf("Expected only succuss-level alerts updating a DSR, got error-level alert: %s", alert.Text)
 			} else if alert.Level == tc.SuccessLevel.String() {
@@ -318,147 +404,227 @@ func TestDeliveryServiceRequestWorkflow(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("Expected a success-level alert updating a DSR, got none")
+			t.Errorf("Expected a success-level alert updating a DSR, got none: %v", alerts.Alerts)
 		}
 
-		if dsr.Status != tc.RequestStatus("submitted") {
-			t.Errorf("expected status=submitted,  got %s", string(dsr.Status))
+		if alerts.Response.Status != tc.RequestStatus("submitted") {
+			t.Errorf("expected status=submitted, got %s", alerts.Response.Status)
 		}
 	})
 }
 
-func updateDeliveryServiceRequestStatus(t *testing.T, dsr tc.DeliveryServiceRequestV40, newstate string, header http.Header) (tc.Alerts, tc.DeliveryServiceRequestV40) {
+func updateDeliveryServiceRequestStatus(t *testing.T, dsr tc.DeliveryServiceRequestV4, newstate string, header http.Header) tc.DeliveryServiceRequestResponseV4 {
+	var resp tc.DeliveryServiceRequestResponseV4
 	ID := dsr.ID
 	if ID == nil {
 		t.Error("updateDeliveryServiceRequestStatus called with a DSR that has a nil ID")
-		return tc.Alerts{}, tc.DeliveryServiceRequestV40{}
+		return resp
 	}
 	dsr.Status = tc.RequestStatus("submitted")
-
-	_, alerts, _, err := TOSession.UpdateDeliveryServiceRequest(*ID, dsr, header)
+	resp, _, err := TOSession.UpdateDeliveryServiceRequest(*ID, dsr, client.RequestOptions{Header: header})
 	if err != nil {
-		t.Errorf("Error updating deliveryservice_request: %v", err)
-		return alerts, dsr
+		t.Errorf("Unexpected error updating Delivery Service Request: %v - alerts: %+v", err, resp.Alerts)
+		return resp
 	}
 
-	d, _, _, err := TOSession.GetDeliveryServiceRequest(*ID, nil)
+	opts := client.NewRequestOptions()
+	opts.QueryParameters.Set("id", strconv.Itoa(*ID))
+	d, _, err := TOSession.GetDeliveryServiceRequests(opts)
 	if err != nil {
-		t.Errorf("Error updating deliveryservice_request %d: %v", ID, err)
-		return alerts, dsr
+		t.Errorf("Error fetching Delivery Service Request #%d after status update: %v - alerts: %+v", ID, err, d.Alerts)
+		return resp
+	}
+	if len(d.Response) != 1 {
+		t.Errorf("Expected exactly one Delivery Service Request to exist with ID %d, found: %d", *ID, len(d.Response))
 	}
 
-	return alerts, d
+	resp.Response = d.Response[0]
+
+	return resp
 }
 
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func GetTestDeliveryServiceRequestsIMS(t *testing.T) {
-	var header http.Header
-	header = make(map[string][]string)
+	if len(testData.DeliveryServiceRequests) < dsrGood+1 {
+		t.Fatalf("Need at least %d Delivery Service Requests to test getting them with IMS", dsrGood+1)
+	}
+
 	futureTime := time.Now().AddDate(0, 0, 1)
 	time := futureTime.Format(time.RFC1123)
-	header.Set(rfc.IfModifiedSince, time)
+
+	opts := client.NewRequestOptions()
+	opts.Header.Set(rfc.IfModifiedSince, time)
+
 	dsr := testData.DeliveryServiceRequests[dsrGood]
-	resetDS(dsr.DeliveryService)
-	if dsr.DeliveryService == nil || dsr.DeliveryService.XMLID == nil {
+	var ds *tc.DeliveryServiceV4
+	if dsr.ChangeType == tc.DSRChangeTypeDelete {
+		ds = dsr.Original
+	} else {
+		ds = dsr.Requested
+	}
+	resetDS(ds)
+	if ds == nil || ds.XMLID == nil {
 		t.Fatalf("the %dth DSR in the test data had no DeliveryService - or that DeliveryService had no XMLID", dsrGood)
 	}
 
-	_, _, reqInf, err := TOSession.GetDeliveryServiceRequestsByXMLID(*dsr.DeliveryService.XMLID, header)
+	opts.QueryParameters.Set("xmlId", *ds.XMLID)
+	resp, reqInf, err := TOSession.GetDeliveryServiceRequests(opts)
 	if err != nil {
-		t.Fatalf("Expected no error, but got %v", err.Error())
+		t.Fatalf("Unexpected error getting Delivery Service Requests with XMLID '%s': %v - alerts: %+v", *ds.XMLID, err, resp.Alerts)
 	}
 	if reqInf.StatusCode != http.StatusNotModified {
 		t.Fatalf("Expected 304 status code, got %v", reqInf.StatusCode)
 	}
 }
 
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func GetTestDeliveryServiceRequests(t *testing.T) {
+	if len(testData.DeliveryServiceRequests) < dsrGood+1 {
+		t.Fatalf("Need at least %d Delivery Service Requests to test getting them", dsrGood+1)
+	}
 	dsr := testData.DeliveryServiceRequests[dsrGood]
-	resetDS(dsr.DeliveryService)
-	if dsr.DeliveryService == nil || dsr.DeliveryService.XMLID == nil {
+	var ds *tc.DeliveryServiceV4
+	if dsr.ChangeType == tc.DSRChangeTypeDelete {
+		ds = dsr.Original
+	} else {
+		ds = dsr.Requested
+	}
+	resetDS(ds)
+
+	if ds == nil || ds.XMLID == nil {
 		t.Fatalf("the %dth DSR in the test data had no DeliveryService - or that DeliveryService had no XMLID", dsrGood)
 	}
-	resp, _, _, err := TOSession.GetDeliveryServiceRequestsByXMLID(*dsr.DeliveryService.XMLID, nil)
+
+	opts := client.NewRequestOptions()
+	opts.QueryParameters.Set("xmlId", *ds.XMLID)
+	resp, _, err := TOSession.GetDeliveryServiceRequests(opts)
 	if err != nil {
-		t.Errorf("cannot GET DeliveryServiceRequest by XMLID: %v - %v", err, resp)
+		t.Errorf("cannot get Delivery Service Requests with XMLID '%s': %v - alerts: %+v", *ds.XMLID, err, resp.Alerts)
 	}
 }
 
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func UpdateTestDeliveryServiceRequests(t *testing.T) {
+	if len(testData.DeliveryServiceRequests) < dsrGood+1 {
+		t.Fatalf("Need at least %d Delivery Service Requests to test updating them", dsrGood+1)
+	}
 
 	// Retrieve the DeliveryServiceRequest by name so we can get the id for the Update
 	dsr := testData.DeliveryServiceRequests[dsrGood]
-	resetDS(dsr.DeliveryService)
-	if dsr.DeliveryService == nil || dsr.DeliveryService.XMLID == nil {
+	var ds *tc.DeliveryServiceV4
+	if dsr.ChangeType == tc.DSRChangeTypeDelete {
+		ds = dsr.Original
+	} else {
+		ds = dsr.Requested
+	}
+
+	resetDS(ds)
+	if ds == nil || ds.XMLID == nil {
 		t.Fatalf("the %dth DSR in the test data had no DeliveryService - or that DeliveryService had no XMLID", dsrGood)
 	}
 
-	resp, _, _, err := TOSession.GetDeliveryServiceRequestsByXMLID(*dsr.DeliveryService.XMLID, nil)
+	opts := client.NewRequestOptions()
+	opts.QueryParameters.Set("xmlId", *ds.XMLID)
+	resp, _, err := TOSession.GetDeliveryServiceRequests(opts)
 	if err != nil {
-		t.Errorf("cannot GET DeliveryServiceRequest by name: %v - %v", dsr.DeliveryService.XMLID, err)
+		t.Errorf("cannot get Delivery Service Request with XMLID '%s': %v - alerts: %+v", *ds.XMLID, err, resp.Alerts)
 	}
-	if len(resp) == 0 {
-		t.Fatal("Length of GET DeliveryServiceRequest is 0")
+	if len(resp.Response) == 0 {
+		t.Fatalf("Expected at least one Deliver Service Request to exist with XMLID '%s', but none were found in Traffic Ops", *ds.XMLID)
 	}
-	respDSR := resp[0]
+	respDSR := resp.Response[0]
 	if respDSR.ID == nil {
-		t.Fatalf("got a DSR by XMLID '%s' with a null or undefined ID", *dsr.DeliveryService.XMLID)
+		t.Fatalf("got a DSR by XMLID '%s' with a null or undefined ID", *ds.XMLID)
+	}
+	var respDS *tc.DeliveryServiceV4
+	if dsr.ChangeType == tc.DSRChangeTypeDelete {
+		respDS = dsr.Original
+	} else {
+		respDS = dsr.Requested
 	}
 	expDisplayName := "new display name"
-	respDSR.DeliveryService.DisplayName = &expDisplayName
-	var alert tc.Alerts
+	respDS.DisplayName = &expDisplayName
 	id := *respDSR.ID
-	_, alert, _, err = TOSession.UpdateDeliveryServiceRequest(id, respDSR, nil)
-	t.Log("Response: ", alert)
+	alerts, _, err := TOSession.UpdateDeliveryServiceRequest(id, respDSR, client.RequestOptions{})
 	if err != nil {
-		t.Errorf("cannot UPDATE DeliveryServiceRequest by id: %v - %v", err, alert)
+		t.Errorf("cannot update Delivery Service Request #%d: %v - alerts: %+v", id, err, alerts.Alerts)
 		return
 	}
 
 	// Retrieve the DeliveryServiceRequest to check DeliveryServiceRequest name got updated
-	respDSR, _, _, err = TOSession.GetDeliveryServiceRequest(id, nil)
+	opts.QueryParameters.Del("xmlId")
+	opts.QueryParameters.Set("id", strconv.Itoa(id))
+	dsrResp, _, err := TOSession.GetDeliveryServiceRequests(opts)
 	if err != nil {
-		t.Fatalf("cannot GET DeliveryServiceRequest by ID: %v - %v", id, err)
+		t.Fatalf("cannot get Delivery Service Request #%d: %v - alerts: %+v", id, err, dsrResp.Alerts)
 	}
-	if respDSR.DeliveryService == nil || respDSR.DeliveryService.DisplayName == nil {
-		t.Fatalf("Got DSR by ID '%d' that had no DeliveryService - or said DeliveryService had no DisplayName", *respDSR.ID)
+	if len(dsrResp.Response) != 1 {
+		t.Fatalf("Expected exactly one Delivery Service Request to have id %d, found: %d", id, len(dsrResp.Response))
 	}
-	if *respDSR.DeliveryService.DisplayName != expDisplayName {
-		t.Errorf("results do not match actual: %s, expected: %s", *respDSR.DeliveryService.DisplayName, expDisplayName)
+
+	respDSR = dsrResp.Response[0]
+	if respDSR.ChangeType == tc.DSRChangeTypeDelete {
+		respDS = dsr.Original
+	} else {
+		respDS = dsr.Requested
+	}
+
+	if respDS == nil || respDS.DisplayName == nil {
+		t.Fatalf("Got DSR by ID '%d' that had no DeliveryService - or said DeliveryService had no DisplayName", id)
+	}
+	if *respDS.DisplayName != expDisplayName {
+		t.Errorf("results do not match actual: %s, expected: %s", *respDS.DisplayName, expDisplayName)
 	}
 }
 
+// Note that this test is suceptible to breaking if the structure of the test
+// data's DSRs is altered at all.
 func DeleteTestDeliveryServiceRequests(t *testing.T) {
+	if len(testData.DeliveryServiceRequests) < dsrGood+1 {
+		t.Fatalf("Need at least %d Delivery Service Requests to test deleting them", dsrGood+1)
+	}
 
 	// Retrieve the DeliveryServiceRequest by name so we can get the id for the Update
 	dsr := testData.DeliveryServiceRequests[dsrGood]
-	resetDS(dsr.DeliveryService)
-	if dsr.DeliveryService == nil || dsr.DeliveryService.XMLID == nil {
+	var ds *tc.DeliveryServiceV4
+	if dsr.ChangeType == tc.DSRChangeTypeDelete {
+		ds = dsr.Original
+	} else {
+		ds = dsr.Requested
+	}
+
+	resetDS(ds)
+	if ds == nil || ds.XMLID == nil {
 		t.Fatalf("the %dth DSR in the test data had no DeliveryService - or that DeliveryService had no XMLID", dsrGood)
 	}
 
-	resp, _, _, err := TOSession.GetDeliveryServiceRequestsByXMLID(*dsr.DeliveryService.XMLID, nil)
+	opts := client.NewRequestOptions()
+	opts.QueryParameters.Set("xmlId", *ds.XMLID)
+	resp, _, err := TOSession.GetDeliveryServiceRequests(opts)
 	if err != nil {
-		t.Fatalf("cannot GET DeliveryServiceRequest by id: %v - %v", dsr.DeliveryService.XMLID, err)
+		t.Fatalf("cannot get Delivery Service Requests with XMLID '%s': %v - alerts: %+v", *ds.XMLID, err, resp.Alerts)
 	}
-	if len(resp) < 1 {
-		t.Fatal("expected at least one Delivery Service Request, got none")
+	if len(resp.Response) < 1 {
+		t.Fatalf("expected at least one Delivery Service Request to have XMLID '%s', got none", *ds.XMLID)
 	}
-	respDSR := resp[0]
+	respDSR := resp.Response[0]
 	if respDSR.ID == nil {
-		t.Fatalf("Got a DSR by XMLID '%s' that had no ID", *dsr.DeliveryService.XMLID)
+		t.Fatalf("Got a DSR by XMLID '%s' that had no ID", *ds.XMLID)
 	}
-	alert, _, err := TOSession.DeleteDeliveryServiceRequest(*respDSR.ID)
-	t.Log("Response: ", alert)
+	alert, _, err := TOSession.DeleteDeliveryServiceRequest(*respDSR.ID, client.RequestOptions{})
 	if err != nil {
-		t.Errorf("cannot DELETE DeliveryServiceRequest by id: %d - %v - %v", respDSR.ID, err, alert)
+		t.Errorf("cannot delete Delivery Service Request #%d: %v - alerts: %+v", respDSR.ID, err, alert.Alerts)
 	}
 
 	// Retrieve the DeliveryServiceRequest to see if it got deleted
-	dsrs, _, _, err := TOSession.GetDeliveryServiceRequestsByXMLID(*dsr.DeliveryService.XMLID, nil)
+	dsrs, _, err := TOSession.GetDeliveryServiceRequests(opts)
 	if err != nil {
-		t.Errorf("error deleting DeliveryServiceRequest name: %s", err.Error())
+		t.Errorf("Unexpected error fetching Delivery Service Request #%d after deletion: %v - alerts: %+v", *respDSR.ID, err, dsrs.Alerts)
 	}
-	if len(dsrs) > 0 {
-		t.Errorf("expected DeliveryServiceRequest XMLID: %s to be deleted", *dsr.DeliveryService.XMLID)
+	if len(dsrs.Response) > 0 {
+		t.Errorf("expected Delivery Service Request #%d to be deleted, but it was found in Traffic Ops", *respDSR.ID)
 	}
 }

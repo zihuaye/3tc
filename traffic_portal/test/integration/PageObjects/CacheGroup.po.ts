@@ -18,9 +18,25 @@
  */
 import { browser, by, element } from 'protractor';
 
-import { config, randomize } from "../config";
+import { randomize } from "../config";
 import { BasePage } from './BasePage.po';
 import { SideNavigationPage } from '../PageObjects/SideNavigationPage.po';
+
+interface CreateCacheGroup {
+    Type: string;
+    Name: string;
+    ShortName: string;
+    Latitude: string;
+    Longitude: string;
+    ParentCacheGroup: string;
+    SecondaryParentCG: string;
+    FailoverCG?: string;
+}
+
+interface UpdateCacheGroup {
+    Type: string;
+    FailoverCG?: string;
+}
 
 export class CacheGroupPage extends BasePage {
     private btnCreateCacheGroups = element(by.name('createCacheGroupButton'));
@@ -31,14 +47,10 @@ export class CacheGroupPage extends BasePage {
     private txtLongtitude = element(by.name("longitude"));
     private txtParentCacheGroup = element(by.name("parentCacheGroup"));
     private txtSecondaryParentCG = element(by.name("secondaryParentCacheGroup"));
-    private btnCZEnabled = element(by.name("CZEnabled"));
-    private btnGeoEnabled = element(by.name("GeoEnabled"));
     private txtFailoverCG = element(by.name("fallbackOptions"));
     private txtSearch = element(by.id('cacheGroupsTable_filter')).element(by.css('label input'));
-    private txtNoMatchingError = element(by.xpath("//td[text()='No data available in table']"));
     private txtConfirmCacheGroupName = element(by.name("confirmWithNameInput"));
     private btnDelete = element(by.buttonText('Delete'));
-    private config = config;
     private randomize = randomize;
 
     async OpenTopologyMenu() {
@@ -49,16 +61,20 @@ export class CacheGroupPage extends BasePage {
         let snp = new SideNavigationPage();
         await snp.NavigateToCacheGroupsPage();
     }
-    async CreateCacheGroups(cachegroup, outputMessage: string) {
+
+    public async CreateCacheGroups(cachegroup: CreateCacheGroup, outputMessage: string): Promise<boolean> {
         let result = false
         let basePage = new BasePage();
         if (cachegroup.Type == "EDGE_LOC") {
+            if (cachegroup.FailoverCG === undefined) {
+                throw new Error(`cachegroups with Type 'EDGE_LOC' must have FailoverCG`);
+            }
             await this.btnCreateCacheGroups.click();
             await this.txtName.sendKeys(cachegroup.Name + this.randomize);
             await this.txtShortName.sendKeys(cachegroup.ShortName + this.randomize);
             await this.txtType.sendKeys(cachegroup.Type);
             await this.txtLatitude.sendKeys(cachegroup.Latitude);
-            await this.txtLongtitude.sendKeys(cachegroup.Longtitude);
+            await this.txtLongtitude.sendKeys(cachegroup.Longitude);
             await this.txtParentCacheGroup.sendKeys(cachegroup.ParentCacheGroup);
             await this.txtSecondaryParentCG.sendKeys(cachegroup.SecondaryParentCG);
             await this.txtFailoverCG.sendKeys(cachegroup.FailoverCG);
@@ -68,7 +84,7 @@ export class CacheGroupPage extends BasePage {
             await this.txtShortName.sendKeys(cachegroup.ShortName + this.randomize);
             await this.txtType.sendKeys(cachegroup.Type);
             await this.txtLatitude.sendKeys(cachegroup.Latitude);
-            await this.txtLongtitude.sendKeys(cachegroup.Longtitude);
+            await this.txtLongtitude.sendKeys(cachegroup.Longitude);
             await this.txtParentCacheGroup.sendKeys(cachegroup.ParentCacheGroup);
             await this.txtSecondaryParentCG.sendKeys(cachegroup.SecondaryParentCG);
         }
@@ -82,26 +98,24 @@ export class CacheGroupPage extends BasePage {
         })
         return result;
     }
-    async SearchCacheGroups(nameCG: string) {
+
+    public async SearchCacheGroups(nameCG: string): Promise<boolean> {
         let name = nameCG + this.randomize;
-        let result = false;
         await this.txtSearch.clear();
         await this.txtSearch.sendKeys(name);
-        if (await browser.isElementPresent(element(by.xpath("//td[@data-search='^" + name + "$']"))) == true) {
+        if (await browser.isElementPresent(element(by.xpath("//td[@data-search='^" + name + "$']"))) === true) {
             await element(by.xpath("//td[@data-search='^" + name + "$']")).click();
-            result = true;
-        } else {
-            result = undefined;
+            return true;
         }
-        return result;
+        return false;
     }
-    async UpdateCacheGroups(cachegroup, outputMessage: string) {
-        let result = false;
+
+    public async UpdateCacheGroups(cachegroup: UpdateCacheGroup, outputMessage: string | undefined): Promise<boolean | undefined> {
+        let result: boolean | undefined = false;
         let basePage = new BasePage();
-        let description = cachegroup.description;
         let snp = new SideNavigationPage();
-        let name = cachegroup.FailoverCG + this.randomize;
         if (cachegroup.Type == "EDGE_LOC") {
+            const name = cachegroup.FailoverCG + this.randomize;
             await this.txtFailoverCG.click();
             if(await browser.isElementPresent(element(by.xpath(`//select[@name="fallbackOptions"]//option[@label="`+ name + `"]`)))){
                 await element(by.xpath(`//select[@name="fallbackOptions"]//option[@label="`+ name + `"]`)).click();
@@ -114,7 +128,7 @@ export class CacheGroupPage extends BasePage {
         if(result != undefined)
         {
             await basePage.GetOutputMessage().then(function (value) {
-                if (outputMessage == value) {
+                if (outputMessage === value) {
                     result = true;
                 } else {
                     result = false;

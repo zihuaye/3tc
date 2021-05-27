@@ -1,3 +1,5 @@
+package client
+
 /*
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,145 +15,137 @@
    limitations under the License.
 */
 
-package client
-
 import (
 	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/traffic_ops/toclientlib"
 )
 
-const (
-	APIOrigins = "/origins"
-)
+// apiOrigins is the full path to the /origins API route.
+const apiOrigins = "/origins"
 
-func originIDs(to *Session, origin *tc.Origin) error {
+func (to *Session) originIDs(origin *tc.Origin) error {
+	if origin == nil {
+		return errors.New("invalid call to originIDs; nil origin")
+	}
+
+	opts := NewRequestOptions()
 	if origin.CachegroupID == nil && origin.Cachegroup != nil {
-		p, _, err := to.GetCacheGroupNullableByNameWithHdr(*origin.Cachegroup, nil)
+		opts.QueryParameters.Set("name", *origin.Cachegroup)
+		p, _, err := to.GetCacheGroups(opts)
 		if err != nil {
-			return err
+			return fmt.Errorf("resolving Cache Group name '%s' to an ID: %w - alerts: %+v", *origin.Cachegroup, err, p.Alerts)
 		}
-		if len(p) == 0 {
-			return errors.New("no cachegroup named " + *origin.Cachegroup)
+		if len(p.Response) == 0 {
+			return fmt.Errorf("no Cache Group named '%s'", *origin.Cachegroup)
 		}
-		origin.CachegroupID = p[0].ID
+		opts.QueryParameters.Del("name")
+		origin.CachegroupID = p.Response[0].ID
 	}
 
 	if origin.DeliveryServiceID == nil && origin.DeliveryService != nil {
-		dses, _, err := to.GetDeliveryServiceByXMLIDNullableWithHdr(*origin.DeliveryService, nil)
+		opts.QueryParameters.Set("xmlId", *origin.DeliveryService)
+		dses, _, err := to.GetDeliveryServices(opts)
 		if err != nil {
-			return err
+			return fmt.Errorf("resolving Delivery Service XMLID '%s' to an ID: %w - alerts: %+v", *origin.DeliveryService, err, dses.Alerts)
 		}
-		if len(dses) == 0 {
-			return errors.New("no deliveryservice with name " + *origin.DeliveryService)
+		if len(dses.Response) == 0 {
+			return fmt.Errorf("no Delivery Service with XMLID '%s'", *origin.DeliveryService)
 		}
-		origin.DeliveryServiceID = dses[0].ID
+		opts.QueryParameters.Del("xmlId")
+		origin.DeliveryServiceID = dses.Response[0].ID
 	}
 
 	if origin.ProfileID == nil && origin.Profile != nil {
-		profiles, _, err := to.GetProfileByNameWithHdr(*origin.Profile, nil)
+		opts.QueryParameters.Set("name", *origin.Profile)
+		profiles, _, err := to.GetProfiles(opts)
 		if err != nil {
-			return err
+			return fmt.Errorf("resolving Profile name '%s' to an ID: %w - alerts: %+v", *origin.Profile, err, profiles.Alerts)
 		}
-		if len(profiles) == 0 {
+		if len(profiles.Response) == 0 {
 			return errors.New("no profile with name " + *origin.Profile)
 		}
-		origin.ProfileID = &profiles[0].ID
+		origin.ProfileID = &profiles.Response[0].ID
 	}
 
 	if origin.CoordinateID == nil && origin.Coordinate != nil {
-		coordinates, _, err := to.GetCoordinateByNameWithHdr(*origin.Coordinate, nil)
+		opts.QueryParameters.Set("name", *origin.Coordinate)
+		coordinates, _, err := to.GetCoordinates(opts)
 		if err != nil {
-			return err
+			return fmt.Errorf("resolving Coordinates name '%s' to an ID: %w - alerts: %+v", *origin.Coordinate, err, coordinates.Alerts)
 		}
-		if len(coordinates) == 0 {
-			return errors.New("no coordinate with name " + *origin.Coordinate)
+		if len(coordinates.Response) == 0 {
+			return fmt.Errorf("no coordinate with name '%s'", *origin.Coordinate)
 		}
-		origin.CoordinateID = &coordinates[0].ID
+		origin.CoordinateID = &coordinates.Response[0].ID
 	}
 
 	if origin.TenantID == nil && origin.Tenant != nil {
-		tenant, _, err := to.TenantByNameWithHdr(*origin.Tenant, nil)
+		opts.QueryParameters.Set("name", *origin.Tenant)
+		tenant, _, err := to.GetTenants(opts)
 		if err != nil {
-			return err
+			return fmt.Errorf("resolving Tenant name '%s' to an ID: %w - alerts: %+v", *origin.Tenant, err, tenant.Alerts)
 		}
-		origin.TenantID = &tenant.ID
+		if len(tenant.Response) == 0 {
+			return fmt.Errorf("no Tenant with name '%s'", *origin.Tenant)
+		}
+		origin.TenantID = &tenant.Response[0].ID
 	}
 
 	return nil
 }
 
-// Create an Origin
-func (to *Session) CreateOrigin(origin tc.Origin) (*tc.OriginDetailResponse, toclientlib.ReqInf, error) {
+// CreateOrigin creates the given Origin.
+func (to *Session) CreateOrigin(origin tc.Origin, opts RequestOptions) (tc.OriginDetailResponse, toclientlib.ReqInf, error) {
+	var originResp tc.OriginDetailResponse
 	var remoteAddr net.Addr
 	reqInf := toclientlib.ReqInf{CacheHitStatus: toclientlib.CacheHitStatusMiss, RemoteAddr: remoteAddr}
 
-	err := originIDs(to, &origin)
+	err := to.originIDs(&origin)
 	if err != nil {
-		return nil, reqInf, err
+		return originResp, reqInf, err
 	}
-	var originResp tc.OriginDetailResponse
-	reqInf, err = to.post(APIOrigins, origin, nil, &originResp)
-	return &originResp, reqInf, err
+	reqInf, err = to.post(apiOrigins, opts, origin, &originResp)
+	return originResp, reqInf, err
 }
 
-func (to *Session) UpdateOriginByIDWithHdr(id int, origin tc.Origin, header http.Header) (*tc.OriginDetailResponse, toclientlib.ReqInf, error) {
+// UpdateOrigin replaces the Origin identified by 'id' with the passed Origin.
+func (to *Session) UpdateOrigin(id int, origin tc.Origin, opts RequestOptions) (tc.OriginDetailResponse, toclientlib.ReqInf, error) {
+	var originResp tc.OriginDetailResponse
 	var remoteAddr net.Addr
 	reqInf := toclientlib.ReqInf{CacheHitStatus: toclientlib.CacheHitStatusMiss, RemoteAddr: remoteAddr}
 
-	err := originIDs(to, &origin)
+	err := to.originIDs(&origin)
 	if err != nil {
-		return nil, reqInf, err
+		return originResp, reqInf, err
 	}
-	route := fmt.Sprintf("%s?id=%d", APIOrigins, id)
-	var originResp tc.OriginDetailResponse
-	reqInf, err = to.put(route, origin, header, &originResp)
-	return &originResp, reqInf, err
+	if opts.QueryParameters == nil {
+		opts.QueryParameters = url.Values{}
+	}
+	opts.QueryParameters.Set("id", strconv.Itoa(id))
+	reqInf, err = to.put(apiOrigins, opts, origin, &originResp)
+	return originResp, reqInf, err
 }
 
-// Update an Origin by ID
-// Deprecated: UpdateOriginByID will be removed in 6.0. Use UpdateOriginByIDWithHdr.
-func (to *Session) UpdateOriginByID(id int, origin tc.Origin) (*tc.OriginDetailResponse, toclientlib.ReqInf, error) {
-	return to.UpdateOriginByIDWithHdr(id, origin, nil)
-}
-
-// GET a list of Origins by a query parameter string
-func (to *Session) GetOriginsByQueryParams(queryParams string) ([]tc.Origin, toclientlib.ReqInf, error) {
-	URI := APIOrigins + queryParams
+// GetOrigins retrieves Origins from Traffic Ops.
+func (to *Session) GetOrigins(opts RequestOptions) (tc.OriginsResponse, toclientlib.ReqInf, error) {
 	var data tc.OriginsResponse
-	reqInf, err := to.get(URI, nil, &data)
-	return data.Response, reqInf, err
+	reqInf, err := to.get(apiOrigins, opts, &data)
+	return data, reqInf, err
 }
 
-// Returns a list of Origins
-func (to *Session) GetOrigins() ([]tc.Origin, toclientlib.ReqInf, error) {
-	return to.GetOriginsByQueryParams("")
-}
-
-// GET an Origin by the Origin ID
-func (to *Session) GetOriginByID(id int) ([]tc.Origin, toclientlib.ReqInf, error) {
-	return to.GetOriginsByQueryParams(fmt.Sprintf("?id=%d", id))
-}
-
-// GET an Origin by the Origin name
-func (to *Session) GetOriginByName(name string) ([]tc.Origin, toclientlib.ReqInf, error) {
-	return to.GetOriginsByQueryParams(fmt.Sprintf("?name=%s", url.QueryEscape(name)))
-}
-
-// GET a list of Origins by Delivery Service ID
-func (to *Session) GetOriginsByDeliveryServiceID(id int) ([]tc.Origin, toclientlib.ReqInf, error) {
-	return to.GetOriginsByQueryParams(fmt.Sprintf("?deliveryservice=%d", id))
-}
-
-// DELETE an Origin by ID
-func (to *Session) DeleteOriginByID(id int) (tc.Alerts, toclientlib.ReqInf, error) {
-	route := fmt.Sprintf("%s?id=%d", APIOrigins, id)
+// DeleteOrigin deletes the Origin with the given ID.
+func (to *Session) DeleteOrigin(id int, opts RequestOptions) (tc.Alerts, toclientlib.ReqInf, error) {
+	if opts.QueryParameters == nil {
+		opts.QueryParameters = url.Values{}
+	}
+	opts.QueryParameters.Set("id", strconv.Itoa(id))
 	var alerts tc.Alerts
-	reqInf, err := to.del(route, nil, &alerts)
+	reqInf, err := to.del(apiOrigins, opts, &alerts)
 	return alerts, reqInf, err
 }
